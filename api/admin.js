@@ -48,6 +48,16 @@ export default async function handler(req, res) {
   try {
     switch (action) {
 
+      // ── Lectura de datos (bypasa RLS con service role) ────────────────────
+      case 'getData': {
+        const [{ data: users }, { data: companies }, { data: subs }] = await Promise.all([
+          supabase.from('users').select('id, email, role, company_id'),
+          supabase.from('companies').select('id, name, is_active'),
+          supabase.from('subscriptions').select('company_id, product, status'),
+        ])
+        return res.json({ users: users || [], companies: companies || [], subs: subs || [] })
+      }
+
       // ── Empresas ─────────────────────────────────────────────────────────
 
       case 'createCompany': {

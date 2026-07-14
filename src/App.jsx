@@ -686,14 +686,14 @@ function AdminPanel() {
 
   async function loadData() {
     setLoading(true)
-    const [{ data: u }, { data: c }, { data: s }] = await Promise.all([
-      supabase.from('users').select('id, email, role, company_id'),
-      supabase.from('companies').select('id, name, is_active'),
-      supabase.from('subscriptions').select('company_id, product, status'),
-    ])
-    setUsers(u || [])
-    setCompanies(c || [])
-    setSubs(s || [])
+    try {
+      const data = await adminCall('getData')
+      setUsers(data.users || [])
+      setCompanies(data.companies || [])
+      setSubs(data.subs || [])
+    } catch(e) {
+      setErr(e.message)
+    }
     setLoading(false)
   }
 
