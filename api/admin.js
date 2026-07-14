@@ -12,9 +12,11 @@
 import { createClient } from '@supabase/supabase-js'
 
 function adminClient() {
-  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) throw new Error('Missing Supabase env vars')
-  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  // Acepta tanto SUPABASE_URL (server) como VITE_SUPABASE_URL (ya configurado en Vercel para el SPA)
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) throw new Error('Missing Supabase env vars — agregá SUPABASE_SERVICE_ROLE_KEY en Vercel → Settings → Environment Variables')
+  return createClient(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
 }
