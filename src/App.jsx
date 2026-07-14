@@ -188,9 +188,12 @@ function LoadingScreen({ message = 'Cargando…' }) {
 // ── Login ────────────────────────────────────────────────────────────────────
 
 function LoginPage() {
+  const [tab, setTab]           = useState('login') // 'login' | 'register'
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
+  const [name, setName]         = useState('')
   const [error, setError]       = useState('')
+  const [info, setInfo]         = useState('')
   const [loading, setLoading]   = useState(false)
   const [showPass, setShowPass] = useState(false)
 
@@ -198,6 +201,21 @@ function LoginPage() {
     e.preventDefault(); setError(''); setLoading(true)
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password })
     if (error) setError(error.message === 'Invalid login credentials' ? 'Email o contraseña incorrectos.' : error.message)
+    setLoading(false)
+  }
+
+  async function handleRegister(e) {
+    e.preventDefault(); setError(''); setInfo(''); setLoading(true)
+    if (password.length < 8) { setError('La contraseña debe tener al menos 8 caracteres.'); setLoading(false); return }
+    const { data, error } = await supabase.auth.signUp({ email: email.trim().toLowerCase(), password,
+      options: { data: { full_name: name } }
+    })
+    if (error) { setError(error.message); setLoading(false); return }
+    // Crear fila en users (sin empresa, pendiente de activación)
+    if (data.user) {
+      await supabase.from('users').upsert({ id: data.user.id, email: email.trim().toLowerCase(), role: 'client' }, { onConflict: 'id' })
+    }
+    setInfo('Cuenta creada. Revisá tu email para confirmarla. Un administrador asignará tu empresa.')
     setLoading(false)
   }
 
@@ -265,46 +283,70 @@ function LoginPage() {
       </div>
 
       {/* Panel derecho — formulario */}
-      <div style={{
-        flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
-        padding: '48px 64px', background: '#fff',
-      }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '48px 64px', background: '#fff' }}>
         <div style={{ maxWidth: 360, width: '100%', animation: 'fadeUp .4s ease' }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>Bienvenido</div>
-          <h1 style={{ fontSize: 26, fontWeight: 800, color: T.navy, marginBottom: 6, letterSpacing: '-0.02em' }}>Ingresá a Talenio</h1>
-          <p style={{ fontSize: 13.5, color: T.muted, marginBottom: 28 }}>Accedé con tu email y contraseña.</p>
+          <h1 style={{ fontSize: 26, fontWeight: 800, color: T.navy, marginBottom: 24, letterSpacing: '-0.02em' }}>
+            {tab === 'login' ? 'Ingresá a Talenio' : 'Crear cuenta'}
+          </h1>
+
+          {/* Tabs */}
+          <div style={{ display: 'flex', gap: 4, background: T.bg, borderRadius: 10, padding: 4, marginBottom: 24 }}>
+            {[['login','Iniciar sesión'],['register','Registrarse']].map(([t, label]) => (
+              <button key={t} onClick={() => { setTab(t); setError(''); setInfo('') }} style={{
+                flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 700,
+                background: tab === t ? '#fff' : 'transparent',
+                color: tab === t ? T.navy : T.muted,
+                boxShadow: tab === t ? '0 1px 4px rgba(0,0,0,.08)' : 'none',
+                cursor: 'pointer', transition: 'all .15s',
+              }}>{label}</button>
+            ))}
+          </div>
 
           {/* Google */}
           <button type="button" onClick={handleGoogle} style={{
             width: '100%', padding: '11px 0', borderRadius: 10, border: `1px solid ${T.border}`,
             background: '#fff', color: T.navy, fontSize: 14, fontWeight: 600,
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-            cursor: 'pointer', marginBottom: 20, transition: 'box-shadow .15s',
+            cursor: 'pointer', marginBottom: 18,
           }}>
             <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.08 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-3.59-13.46-8.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
             Continuar con Google
           </button>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
             <div style={{ flex: 1, height: 1, background: T.border }}/>
             <span style={{ fontSize: 12, color: T.muted, fontWeight: 600 }}>o con email</span>
             <div style={{ flex: 1, height: 1, background: T.border }}/>
           </div>
 
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {info && (
+            <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '10px 13px', fontSize: 13, color: '#166534', marginBottom: 14 }}>
+              {info}
+            </div>
+          )}
+          {error && (
+            <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '9px 13px', fontSize: 13, color: '#DC2626', marginBottom: 14 }}>
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={tab === 'login' ? handleSubmit : handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {tab === 'register' && (
+              <div>
+                <label style={label}>Nombre completo</label>
+                <input type="text" value={name} onChange={e => setName(e.target.value)} required placeholder="Juan Pérez" style={inputStyle}/>
+              </div>
+            )}
             <div>
               <label style={label}>Email</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="tu@empresa.com" style={inputStyle}/>
             </div>
-
             <div>
               <label style={label}>Contraseña</label>
               <div style={{ position: 'relative' }}>
-                <input
-                  type={showPass ? 'text' : 'password'}
-                  value={password} onChange={e => setPassword(e.target.value)} required
-                  placeholder="••••••••" style={{ ...inputStyle, paddingRight: 42 }}
-                />
+                <input type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} required
+                  placeholder="••••••••" style={{ ...inputStyle, paddingRight: 42 }}/>
                 <button type="button" onClick={() => setShowPass(v => !v)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: T.muted, padding: 2, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
                   {showPass
                     ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
@@ -313,32 +355,19 @@ function LoginPage() {
                 </button>
               </div>
             </div>
-
-            {error && (
-              <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '9px 13px', fontSize: 13, color: '#DC2626' }}>
-                {error}
-              </div>
-            )}
-
             <button type="submit" disabled={loading} style={{
               width: '100%', padding: '12px 0', borderRadius: 10, border: 'none',
-              background: loading ? '#a8b0f0' : '#13B0AC',
-              color: '#fff', fontSize: 15, fontWeight: 700,
+              background: loading ? T.border : '#13B0AC', color: '#fff', fontSize: 15, fontWeight: 700,
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
               transition: 'all .15s', marginTop: 4, cursor: loading ? 'not-allowed' : 'pointer',
             }}>
               {loading && <Spinner color="#fff" size={13}/>}
-              {loading ? 'Ingresando…' : 'Ingresar'}
+              {loading ? (tab === 'login' ? 'Ingresando…' : 'Creando cuenta…') : (tab === 'login' ? 'Ingresar' : 'Crear cuenta')}
             </button>
           </form>
 
-          <p style={{ marginTop: 20, fontSize: 13, color: T.muted }}>
-            ¿Problemas para ingresar?{' '}
-            <a href="mailto:hola@delenio.net" style={{ color: '#13B0AC', fontWeight: 700 }}>hola@delenio.net</a>
-          </p>
-          <p style={{ marginTop: 10, fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
-            Cada usuario solo puede ver su propio portal.<br/>
-            Contactá a Delenio para recuperar tu acceso.
+          <p style={{ marginTop: 18, fontSize: 12, color: T.muted }}>
+            ¿Problemas? <a href="mailto:hola@delenio.net" style={{ color: '#13B0AC', fontWeight: 700 }}>hola@delenio.net</a>
           </p>
         </div>
       </div>
@@ -527,11 +556,188 @@ function HubPage({ user, subscriptions, onLogout }) {
       </div>
 
       {/* Grid */}
-      <div style={{ maxWidth: 1020, margin: '0 auto', padding: '32px 24px 72px' }}>
+      <div style={{ maxWidth: 1020, margin: '0 auto', padding: '32px 24px 48px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 16 }}>
           {Object.keys(PRODUCTS).map(key => (
             <ProductCard key={key} productKey={key} active={activeProducts.includes(key)} onSelect={handleSelect}/>
           ))}
+        </div>
+      </div>
+
+      {/* Panel admin */}
+      {isAdmin && <AdminPanel />}
+    </div>
+  )
+}
+
+// ── Admin Panel ───────────────────────────────────────────────────────────────
+
+function AdminPanel() {
+  const [tab, setTab]         = useState('users')
+  const [users, setUsers]     = useState([])
+  const [companies, setCompanies] = useState([])
+  const [loading, setLoading] = useState(false)
+
+  // Form estados
+  const [newEmail, setNewEmail]       = useState('')
+  const [newName, setNewName]         = useState('')
+  const [newRole, setNewRole]         = useState('client')
+  const [newCompany, setNewCompany]   = useState('')
+  const [newProducts, setNewProducts] = useState([])
+  const [companyName, setCompanyName] = useState('')
+  const [msg, setMsg] = useState('')
+  const [err, setErr] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => { loadData() }, [])
+
+  async function loadData() {
+    setLoading(true)
+    const [{ data: u }, { data: c }] = await Promise.all([
+      supabase.from('users').select('id, email, role, company_id'),
+      supabase.from('companies').select('id, name'),
+    ])
+    setUsers(u || [])
+    setCompanies(c || [])
+    setLoading(false)
+  }
+
+  async function createUser(e) {
+    e.preventDefault(); setSaving(true); setMsg(''); setErr('')
+    try {
+      const { data, error } = await supabase.auth.signUp({ email: newEmail.trim().toLowerCase(), password: Math.random().toString(36).slice(-10) + 'A1!' })
+      if (error) throw error
+      const userId = data.user?.id
+      if (!userId) throw new Error('No se pudo crear el usuario')
+      await supabase.from('users').upsert({ id: userId, email: newEmail.trim().toLowerCase(), role: newRole, company_id: newCompany || null }, { onConflict: 'id' })
+      setMsg(`Usuario ${newEmail} creado. Recibirá un email para establecer su contraseña.`)
+      setNewEmail(''); setNewName(''); setNewRole('client'); setNewCompany('')
+      loadData()
+    } catch(e) { setErr(e.message) }
+    setSaving(false)
+  }
+
+  async function createCompany(e) {
+    e.preventDefault(); setSaving(true); setMsg(''); setErr('')
+    try {
+      const { data, error } = await supabase.from('companies').insert({ name: companyName.trim() }).select().single()
+      if (error) throw error
+      if (newProducts.length > 0) {
+        await supabase.from('subscriptions').insert(newProducts.map(p => ({ company_id: data.id, product: p, status: 'active', plan: 'base' })))
+      }
+      setMsg(`Empresa "${companyName}" creada.`)
+      setCompanyName(''); setNewProducts([])
+      loadData()
+    } catch(e) { setErr(e.message) }
+    setSaving(false)
+  }
+
+  const inp = { width: '100%', padding: '9px 12px', borderRadius: 9, border: `1px solid ${T.border}`, fontSize: 13, color: T.ink, background: T.bg, outline: 'none' }
+  const lbl = { fontSize: 12, fontWeight: 700, color: T.muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }
+
+  return (
+    <div style={{ borderTop: `2px solid ${T.border}`, background: T.bg, padding: '40px 0 72px' }}>
+      <div style={{ maxWidth: 1020, margin: '0 auto', padding: '0 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
+          <div style={{ width: 28, height: 28, borderRadius: 8, background: T.blue, display: 'grid', placeItems: 'center' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M12 4a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
+          </div>
+          <h2 style={{ fontSize: 17, fontWeight: 800, color: T.navy }}>Administración</h2>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: 4, background: T.border, borderRadius: 10, padding: 3, width: 'fit-content', marginBottom: 24 }}>
+          {[['users','Usuarios'],['companies','Empresas']].map(([t, l]) => (
+            <button key={t} onClick={() => { setTab(t); setMsg(''); setErr('') }} style={{
+              padding: '7px 18px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 700,
+              background: tab === t ? '#fff' : 'transparent', color: tab === t ? T.navy : T.muted,
+              cursor: 'pointer', boxShadow: tab === t ? '0 1px 4px rgba(0,0,0,.08)' : 'none',
+            }}>{l}</button>
+          ))}
+        </div>
+
+        {msg && <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#166534', marginBottom: 16 }}>{msg}</div>}
+        {err && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#DC2626', marginBottom: 16 }}>{err}</div>}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+
+          {/* Formulario */}
+          <div style={{ background: T.paper, borderRadius: 14, padding: 24, border: `1px solid ${T.border}` }}>
+            <h3 style={{ fontSize: 14, fontWeight: 800, color: T.navy, marginBottom: 18 }}>
+              {tab === 'users' ? 'Crear usuario' : 'Crear empresa'}
+            </h3>
+
+            {tab === 'users' ? (
+              <form onSubmit={createUser} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div><label style={lbl}>Nombre</label><input style={inp} value={newName} onChange={e => setNewName(e.target.value)} placeholder="Juan Pérez"/></div>
+                <div><label style={lbl}>Email</label><input style={inp} type="email" required value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="usuario@empresa.com"/></div>
+                <div>
+                  <label style={lbl}>Rol</label>
+                  <select style={inp} value={newRole} onChange={e => setNewRole(e.target.value)}>
+                    <option value="client">Cliente</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={lbl}>Empresa</label>
+                  <select style={inp} value={newCompany} onChange={e => setNewCompany(e.target.value)}>
+                    <option value="">Sin empresa</option>
+                    {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <button type="submit" disabled={saving} style={{ padding: '10px', borderRadius: 9, border: 'none', background: T.blue, color: '#fff', fontWeight: 700, fontSize: 13, cursor: saving ? 'not-allowed' : 'pointer' }}>
+                  {saving ? 'Creando…' : 'Crear usuario'}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={createCompany} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div><label style={lbl}>Nombre de la empresa</label><input style={inp} required value={companyName} onChange={e => setCompanyName(e.target.value)} placeholder="Empresa S.A."/></div>
+                <div>
+                  <label style={lbl}>Productos activos</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {Object.entries(PRODUCTS).filter(([,p]) => !p.freemium).map(([key, p]) => (
+                      <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={newProducts.includes(key)} onChange={e => setNewProducts(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
+                        <span style={{ color: p.color, fontWeight: 700 }}>{p.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <button type="submit" disabled={saving} style={{ padding: '10px', borderRadius: 9, border: 'none', background: T.blue, color: '#fff', fontWeight: 700, fontSize: 13, cursor: saving ? 'not-allowed' : 'pointer' }}>
+                  {saving ? 'Creando…' : 'Crear empresa'}
+                </button>
+              </form>
+            )}
+          </div>
+
+          {/* Lista */}
+          <div style={{ background: T.paper, borderRadius: 14, padding: 24, border: `1px solid ${T.border}` }}>
+            <h3 style={{ fontSize: 14, fontWeight: 800, color: T.navy, marginBottom: 18 }}>
+              {tab === 'users' ? `Usuarios (${users.length})` : `Empresas (${companies.length})`}
+            </h3>
+            {loading ? <Spinner/> : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
+                {tab === 'users' ? users.map(u => (
+                  <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: T.bg }}>
+                    <div style={{ width: 28, height: 28, borderRadius: '50%', background: T.blueSoft, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, color: T.blue, flexShrink: 0 }}>
+                      {u.email?.[0]?.toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: T.navy, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</div>
+                      <div style={{ fontSize: 11, color: T.muted }}>{u.role} · {companies.find(c => c.id === u.company_id)?.name || 'Sin empresa'}</div>
+                    </div>
+                  </div>
+                )) : companies.map(c => (
+                  <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: T.bg }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 8, background: T.blueSoft, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, color: T.blue, flexShrink: 0 }}>
+                      {c.name?.[0]?.toUpperCase()}
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.navy }}>{c.name}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
