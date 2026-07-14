@@ -614,26 +614,73 @@ function HubPage({ user, subscriptions, companyId, onLogout }) {
 
 // ── Admin Panel ───────────────────────────────────────────────────────────────
 
+// ── Admin helpers ─────────────────────────────────────────────────────────────
+
+async function adminCall(action, params = {}) {
+  const { data: { session } } = await supabase.auth.getSession()
+  const res = await fetch('/api/admin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+    body: JSON.stringify({ action, ...params }),
+  })
+  const json = await res.json()
+  if (!res.ok) throw new Error(json.error || 'Error del servidor')
+  return json
+}
+
+// ── Modal genérico ────────────────────────────────────────────────────────────
+
+function Modal({ title, onClose, children }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 100, display: 'grid', placeItems: 'center', padding: 20 }}
+      onClick={onClose}>
+      <div style={{ background: T.paper, borderRadius: 18, padding: 28, width: '100%', maxWidth: 480, boxShadow: '0 24px 64px rgba(0,0,0,.22)', position: 'relative' }}
+        onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 800, color: T.navy, margin: 0 }}>{title}</h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, color: T.muted, cursor: 'pointer', lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+// ── AdminPanel ────────────────────────────────────────────────────────────────
+
 function AdminPanel() {
+  const inp = { width: '100%', padding: '9px 12px', borderRadius: 9, border: `1px solid ${T.border}`, fontSize: 13, color: T.ink, background: T.bg, outline: 'none', boxSizing: 'border-box' }
+  const lbl = { fontSize: 11, fontWeight: 700, color: T.muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }
+
   const [tab, setTab]             = useState('companies')
   const [users, setUsers]         = useState([])
   const [companies, setCompanies] = useState([])
   const [subs, setSubs]           = useState([])
   const [loading, setLoading]     = useState(false)
+  const [saving, setSaving]       = useState(false)
+  const [msg, setMsg]             = useState('')
+  const [err, setErr]             = useState('')
 
-  // Form usuario
+  // Crear usuario
   const [uEmail, setUEmail]     = useState('')
   const [uName, setUName]       = useState('')
   const [uRole, setURole]       = useState('client')
   const [uCompany, setUCompany] = useState('')
 
-  // Form empresa
+  // Crear empresa
   const [cName, setCName]         = useState('')
   const [cProducts, setCProducts] = useState([])
 
-  const [msg, setMsg]     = useState('')
-  const [err, setErr]     = useState('')
-  const [saving, setSaving] = useState(false)
+  // Editar empresa
+  const [editCo, setEditCo]     = useState(null) // { id, name, is_active }
+  const [editCoName, setEditCoName]       = useState('')
+  const [editCoProds, setEditCoProds]     = useState([])
+  const [editCoActive, setEditCoActive]   = useState(true)
+
+  // Editar usuario
+  const [editUser, setEditUser]     = useState(null)
+  const [editUserRole, setEditUserRole]   = useState('client')
+  const [editUserCompany, setEditUserCompany] = useState('')
 
   useEffect(() => { loadData() }, [])
 
@@ -641,7 +688,7 @@ function AdminPanel() {
     setLoading(true)
     const [{ data: u }, { data: c }, { data: s }] = await Promise.all([
       supabase.from('users').select('id, email, role, company_id'),
-      supabase.from('companies').select('id, name'),
+      supabase.from('companies').select('id, name, is_active'),
       supabase.from('subscriptions').select('company_id, product, status'),
     ])
     setUsers(u || [])
@@ -650,83 +697,111 @@ function AdminPanel() {
     setLoading(false)
   }
 
-  // Obtener productos activos de una empresa
   function companyProducts(companyId) {
     return subs.filter(s => s.company_id === companyId && s.status === 'active').map(s => s.product)
   }
 
+  function flash(ok, text) {
+    if (ok) setMsg(text); else setErr(text)
+    setTimeout(() => { setMsg(''); setErr('') }, 4000)
+  }
+
   async function createUser(e) {
-    e.preventDefault(); setSaving(true); setMsg(''); setErr('')
+    e.preventDefault(); setSaving(true)
     try {
-      const email = uEmail.trim().toLowerCase()
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password: Math.random().toString(36).slice(-10) + 'A1!',
-        options: { data: { full_name: uName } },
-      })
-      if (error) throw error
-      const userId = data.user?.id
-      if (!userId) throw new Error('No se pudo crear el usuario en Auth')
-
-      // Tabla core
-      await supabase.from('users').upsert({ id: userId, email, role: uRole, company_id: uCompany || null }, { onConflict: 'id' })
-
-      // Perfiles en cada app según productos de la empresa
-      if (uCompany) {
-        const prods = companyProducts(uCompany)
-        if (prods.includes('climia')) {
-          await supabase.from('climia_profiles').upsert({
-            id: userId, email, name: uName, role: uRole === 'admin' ? 'admin' : 'client',
-            client_id: null, status: 'Activo',
-          }, { onConflict: 'id' })
-        }
-        if (prods.includes('nomia')) {
-          await supabase.from('nomia_perfiles').upsert({
-            id: userId, email, nombre: uName, rol: uRole === 'admin' ? 'admin' : 'cliente',
-            cliente_id: null,
-          }, { onConflict: 'id' })
-        }
-      }
-
-      setMsg(`Usuario ${email} creado. Recibirá un email para establecer su contraseña.`)
+      await adminCall('createUser', { email: uEmail, name: uName, role: uRole, company_id: uCompany || null })
+      flash(true, `Usuario ${uEmail} creado. Recibirá un email de invitación.`)
       setUEmail(''); setUName(''); setURole('client'); setUCompany('')
       loadData()
-    } catch(e) { setErr(e.message) }
+    } catch(e) { flash(false, e.message) }
     setSaving(false)
   }
 
   async function createCompany(e) {
-    e.preventDefault(); setSaving(true); setMsg(''); setErr('')
+    e.preventDefault(); setSaving(true)
     try {
-      const { data, error } = await supabase.from('companies').insert({ name: cName.trim() }).select().single()
-      if (error) throw error
-      const companyId = data.id
-
-      // Suscripciones
-      if (cProducts.length > 0) {
-        await supabase.from('subscriptions').insert(
-          cProducts.map(p => ({ company_id: companyId, product: p, status: 'active', plan: 'base' }))
-        )
-      }
-
-      // Registros en app-tables
-      if (cProducts.includes('nomia')) {
-        await supabase.from('nomia_clientes').insert({ nombre: cName.trim() })
-      }
-
-      setMsg(`Empresa "${cName}" creada con ${cProducts.length} producto(s).`)
+      await adminCall('createCompany', { name: cName, products: cProducts })
+      flash(true, `Empresa "${cName}" creada.`)
       setCName(''); setCProducts([])
       loadData()
-    } catch(e) { setErr(e.message) }
+    } catch(e) { flash(false, e.message) }
     setSaving(false)
   }
 
-  const inp = { width: '100%', padding: '9px 12px', borderRadius: 9, border: `1px solid ${T.border}`, fontSize: 13, color: T.ink, background: T.bg, outline: 'none' }
-  const lbl = { fontSize: 12, fontWeight: 700, color: T.muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }
+  function openEditCo(c) {
+    setEditCo(c)
+    setEditCoName(c.name)
+    setEditCoProds(companyProducts(c.id))
+    setEditCoActive(c.is_active !== false)
+  }
+
+  async function saveEditCo(e) {
+    e.preventDefault(); setSaving(true)
+    try {
+      await adminCall('updateCompany', { id: editCo.id, name: editCoName, products: editCoProds, is_active: editCoActive })
+      flash(true, `Empresa actualizada.`)
+      setEditCo(null)
+      loadData()
+    } catch(e) { flash(false, e.message) }
+    setSaving(false)
+  }
+
+  async function toggleSuspendCo(c) {
+    const newActive = c.is_active === false ? true : false
+    setSaving(true)
+    try {
+      await adminCall('updateCompany', { id: c.id, is_active: newActive })
+      flash(true, newActive ? `Empresa "${c.name}" reactivada.` : `Empresa "${c.name}" suspendida.`)
+      loadData()
+    } catch(e) { flash(false, e.message) }
+    setSaving(false)
+  }
+
+  function openEditUser(u) {
+    setEditUser(u)
+    setEditUserRole(u.role)
+    setEditUserCompany(u.company_id || '')
+  }
+
+  async function saveEditUser(e) {
+    e.preventDefault(); setSaving(true)
+    try {
+      await adminCall('updateUser', { id: editUser.id, role: editUserRole, company_id: editUserCompany || null })
+      flash(true, 'Usuario actualizado.')
+      setEditUser(null)
+      loadData()
+    } catch(e) { flash(false, e.message) }
+    setSaving(false)
+  }
+
+  async function toggleSuspendUser(u) {
+    const suspend = u.role !== 'suspended'
+    setSaving(true)
+    try {
+      await adminCall('suspendUser', { id: u.id, suspended: suspend })
+      flash(true, suspend ? `${u.email} suspendido.` : `${u.email} reactivado.`)
+      loadData()
+    } catch(e) { flash(false, e.message) }
+    setSaving(false)
+  }
+
+  const StatusBadge = ({ active }) => (
+    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 5,
+      background: active ? '#DCFCE7' : '#FEF2F2', color: active ? '#166534' : '#DC2626' }}>
+      {active ? 'Activo' : 'Suspendido'}
+    </span>
+  )
+
+  const IconBtn = ({ label, color, onClick }) => (
+    <button onClick={onClick} title={label} style={{ background: 'none', border: `1px solid ${T.border}`, borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 600, color, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+      {label}
+    </button>
+  )
 
   return (
     <div style={{ borderTop: `2px solid ${T.border}`, background: T.bg, padding: '40px 0 72px' }}>
       <div style={{ maxWidth: 1020, margin: '0 auto', padding: '0 24px' }}>
+
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
           <div style={{ width: 28, height: 28, borderRadius: 8, background: T.blue, display: 'grid', placeItems: 'center' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M12 4a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
@@ -734,9 +809,8 @@ function AdminPanel() {
           <h2 style={{ fontSize: 17, fontWeight: 800, color: T.navy }}>Administración</h2>
         </div>
 
-        {/* Tabs */}
         <div style={{ display: 'flex', gap: 4, background: T.border, borderRadius: 10, padding: 3, width: 'fit-content', marginBottom: 24 }}>
-          {[['users','Usuarios'],['companies','Empresas']].map(([t, l]) => (
+          {[['companies','Empresas'],['users','Usuarios']].map(([t, l]) => (
             <button key={t} onClick={() => { setTab(t); setMsg(''); setErr('') }} style={{
               padding: '7px 18px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 700,
               background: tab === t ? '#fff' : 'transparent', color: tab === t ? T.navy : T.muted,
@@ -748,15 +822,33 @@ function AdminPanel() {
         {msg && <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#166534', marginBottom: 16 }}>{msg}</div>}
         {err && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#DC2626', marginBottom: 16 }}>{err}</div>}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 24, alignItems: 'start' }}>
 
-          {/* Formulario */}
+          {/* ── Formulario crear ── */}
           <div style={{ background: T.paper, borderRadius: 14, padding: 24, border: `1px solid ${T.border}` }}>
             <h3 style={{ fontSize: 14, fontWeight: 800, color: T.navy, marginBottom: 18 }}>
-              {tab === 'users' ? 'Crear usuario' : 'Crear empresa'}
+              {tab === 'companies' ? 'Nueva empresa' : 'Nuevo usuario'}
             </h3>
 
-            {tab === 'users' ? (
+            {tab === 'companies' ? (
+              <form onSubmit={createCompany} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div><label style={lbl}>Nombre</label><input style={inp} required value={cName} onChange={e => setCName(e.target.value)} placeholder="Empresa S.A."/></div>
+                <div>
+                  <label style={lbl}>Productos</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+                    {Object.entries(PRODUCTS).filter(([,p]) => !p.freemium).map(([key, p]) => (
+                      <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '6px 10px', borderRadius: 8, background: cProducts.includes(key) ? (p.colorSoft || T.blueSoft) : T.bg }}>
+                        <input type="checkbox" checked={cProducts.includes(key)} onChange={e => setCProducts(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
+                        <span style={{ color: p.color, fontWeight: 700 }}>{p.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <button type="submit" disabled={saving} style={{ padding: '10px', borderRadius: 9, border: 'none', background: T.blue, color: '#fff', fontWeight: 700, fontSize: 13, cursor: saving ? 'not-allowed' : 'pointer' }}>
+                  {saving ? 'Creando…' : 'Crear empresa'}
+                </button>
+              </form>
+            ) : (
               <form onSubmit={createUser} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div><label style={lbl}>Nombre completo</label><input style={inp} value={uName} onChange={e => setUName(e.target.value)} placeholder="Juan Pérez"/></div>
                 <div><label style={lbl}>Email</label><input style={inp} type="email" required value={uEmail} onChange={e => setUEmail(e.target.value)} placeholder="usuario@empresa.com"/></div>
@@ -776,68 +868,76 @@ function AdminPanel() {
                 </div>
                 {uCompany && (
                   <div style={{ background: T.blueSoft, borderRadius: 8, padding: '8px 12px', fontSize: 12, color: T.blue }}>
-                    Se crearán perfiles en: {companyProducts(uCompany).filter(p => ['climia','nomia'].includes(p)).map(p => PRODUCTS[p]?.name).join(', ') || 'ninguna app específica aún'}
+                    Perfiles: {companyProducts(uCompany).filter(p => ['climia','nomia'].includes(p)).map(p => PRODUCTS[p]?.name).join(', ') || 'sin apps específicas aún'}
                   </div>
                 )}
                 <button type="submit" disabled={saving} style={{ padding: '10px', borderRadius: 9, border: 'none', background: T.blue, color: '#fff', fontWeight: 700, fontSize: 13, cursor: saving ? 'not-allowed' : 'pointer' }}>
                   {saving ? 'Creando…' : 'Crear usuario'}
                 </button>
               </form>
-            ) : (
-              <form onSubmit={createCompany} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <div><label style={lbl}>Nombre de la empresa</label><input style={inp} required value={cName} onChange={e => setCName(e.target.value)} placeholder="Empresa S.A."/></div>
-                <div>
-                  <label style={lbl}>Productos activos</label>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
-                    {Object.entries(PRODUCTS).filter(([,p]) => !p.freemium).map(([key, p]) => (
-                      <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '6px 10px', borderRadius: 8, background: cProducts.includes(key) ? p.colorSoft : T.bg }}>
-                        <input type="checkbox" checked={cProducts.includes(key)} onChange={e => setCProducts(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
-                        <span style={{ color: p.color, fontWeight: 700 }}>{p.name}</span>
-                        <span style={{ color: T.muted, fontSize: 11 }}>{p.tagline}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <button type="submit" disabled={saving} style={{ padding: '10px', borderRadius: 9, border: 'none', background: T.blue, color: '#fff', fontWeight: 700, fontSize: 13, cursor: saving ? 'not-allowed' : 'pointer' }}>
-                  {saving ? 'Creando…' : 'Crear empresa'}
-                </button>
-              </form>
             )}
           </div>
 
-          {/* Lista */}
+          {/* ── Lista ── */}
           <div style={{ background: T.paper, borderRadius: 14, padding: 24, border: `1px solid ${T.border}` }}>
-            <h3 style={{ fontSize: 14, fontWeight: 800, color: T.navy, marginBottom: 18 }}>
-              {tab === 'users' ? `Usuarios (${users.length})` : `Empresas (${companies.length})`}
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 800, color: T.navy, margin: 0 }}>
+                {tab === 'companies' ? `Empresas (${companies.length})` : `Usuarios (${users.length})`}
+              </h3>
+              <button onClick={loadData} style={{ background: 'none', border: `1px solid ${T.border}`, borderRadius: 7, padding: '4px 10px', fontSize: 11, color: T.muted, cursor: 'pointer' }}>
+                ↺ Actualizar
+              </button>
+            </div>
+
             {loading ? <Spinner/> : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 380, overflowY: 'auto' }}>
-                {tab === 'users' ? users.map(u => (
-                  <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: T.bg }}>
-                    <div style={{ width: 30, height: 30, borderRadius: '50%', background: T.blueSoft, display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 800, color: T.blue, flexShrink: 0 }}>
-                      {u.email?.[0]?.toUpperCase()}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 600, color: T.navy, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</div>
-                      <div style={{ fontSize: 11, color: T.muted }}>{u.role} · {companies.find(c => c.id === u.company_id)?.name || 'Sin empresa'}</div>
-                    </div>
-                  </div>
-                )) : companies.map(c => {
-                  const prods = companyProducts(c.id)
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 480, overflowY: 'auto' }}>
+
+                {tab === 'companies' ? companies.map(c => {
+                  const prods   = companyProducts(c.id)
+                  const active  = c.is_active !== false
                   return (
-                    <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: T.bg }}>
-                      <div style={{ width: 30, height: 30, borderRadius: 8, background: T.blueSoft, display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 800, color: T.blue, flexShrink: 0 }}>
+                    <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, background: active ? T.bg : '#FEF2F2', border: `1px solid ${active ? T.border : '#FECACA'}` }}>
+                      <div style={{ width: 32, height: 32, borderRadius: 9, background: active ? T.blueSoft : '#FEE2E2', display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 800, color: active ? T.blue : '#DC2626', flexShrink: 0 }}>
                         {c.name?.[0]?.toUpperCase()}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: T.navy }}>{c.name}</div>
-                        <div style={{ display: 'flex', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
-                          {prods.map(p => (
-                            <span key={p} style={{ fontSize: 10, fontWeight: 700, color: PRODUCTS[p]?.color || T.muted, background: PRODUCTS[p]?.colorSoft || T.bg, padding: '1px 6px', borderRadius: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: T.navy }}>{c.name}</span>
+                          <StatusBadge active={active}/>
+                        </div>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {prods.length ? prods.map(p => (
+                            <span key={p} style={{ fontSize: 10, fontWeight: 700, color: PRODUCTS[p]?.color || T.muted, background: PRODUCTS[p]?.colorSoft || T.blueSoft, padding: '1px 6px', borderRadius: 4 }}>
                               {PRODUCTS[p]?.name || p}
                             </span>
-                          ))}
+                          )) : <span style={{ fontSize: 10, color: T.muted }}>Sin productos</span>}
                         </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                        <IconBtn label="Editar" color={T.blue} onClick={() => openEditCo(c)}/>
+                        <IconBtn label={active ? 'Suspender' : 'Reactivar'} color={active ? '#DC2626' : '#166534'} onClick={() => toggleSuspendCo(c)}/>
+                      </div>
+                    </div>
+                  )
+                }) : users.map(u => {
+                  const suspended = u.role === 'suspended'
+                  return (
+                    <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, background: suspended ? '#FEF2F2' : T.bg, border: `1px solid ${suspended ? '#FECACA' : T.border}` }}>
+                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: suspended ? '#FEE2E2' : T.blueSoft, display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 800, color: suspended ? '#DC2626' : T.blue, flexShrink: 0 }}>
+                        {u.email?.[0]?.toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 600, color: T.navy, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{u.email}</span>
+                          <StatusBadge active={!suspended}/>
+                        </div>
+                        <div style={{ fontSize: 11, color: T.muted }}>
+                          {u.role} · {companies.find(c => c.id === u.company_id)?.name || 'Sin empresa'}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                        <IconBtn label="Editar" color={T.blue} onClick={() => openEditUser(u)}/>
+                        <IconBtn label={suspended ? 'Reactivar' : 'Suspender'} color={suspended ? '#166534' : '#DC2626'} onClick={() => toggleSuspendUser(u)}/>
                       </div>
                     </div>
                   )
@@ -847,6 +947,68 @@ function AdminPanel() {
           </div>
         </div>
       </div>
+
+      {/* ── Modal editar empresa ── */}
+      {editCo && (
+        <Modal title={`Editar empresa: ${editCo.name}`} onClose={() => setEditCo(null)}>
+          <form onSubmit={saveEditCo} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div><label style={lbl}>Nombre</label><input style={inp} required value={editCoName} onChange={e => setEditCoName(e.target.value)}/></div>
+            <div>
+              <label style={lbl}>Productos activos</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+                {Object.entries(PRODUCTS).filter(([,p]) => !p.freemium).map(([key, p]) => (
+                  <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '7px 10px', borderRadius: 8, background: editCoProds.includes(key) ? (p.colorSoft || T.blueSoft) : T.bg }}>
+                    <input type="checkbox" checked={editCoProds.includes(key)} onChange={e => setEditCoProds(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
+                    <span style={{ color: p.color, fontWeight: 700 }}>{p.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={editCoActive} onChange={e => setEditCoActive(e.target.checked)}/>
+              <span style={{ fontWeight: 600, color: T.navy }}>Empresa activa</span>
+            </label>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" onClick={() => setEditCo(null)} style={{ flex: 1, padding: '10px', borderRadius: 9, border: `1px solid ${T.border}`, background: T.bg, color: T.muted, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                Cancelar
+              </button>
+              <button type="submit" disabled={saving} style={{ flex: 1, padding: '10px', borderRadius: 9, border: 'none', background: T.blue, color: '#fff', fontWeight: 700, fontSize: 13, cursor: saving ? 'not-allowed' : 'pointer' }}>
+                {saving ? 'Guardando…' : 'Guardar'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ── Modal editar usuario ── */}
+      {editUser && (
+        <Modal title={`Editar: ${editUser.email}`} onClose={() => setEditUser(null)}>
+          <form onSubmit={saveEditUser} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <label style={lbl}>Rol</label>
+              <select style={inp} value={editUserRole} onChange={e => setEditUserRole(e.target.value)}>
+                <option value="client">Cliente</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div>
+              <label style={lbl}>Empresa</label>
+              <select style={inp} value={editUserCompany} onChange={e => setEditUserCompany(e.target.value)}>
+                <option value="">Sin empresa</option>
+                {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button type="button" onClick={() => setEditUser(null)} style={{ flex: 1, padding: '10px', borderRadius: 9, border: `1px solid ${T.border}`, background: T.bg, color: T.muted, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                Cancelar
+              </button>
+              <button type="submit" disabled={saving} style={{ flex: 1, padding: '10px', borderRadius: 9, border: 'none', background: T.blue, color: '#fff', fontWeight: 700, fontSize: 13, cursor: saving ? 'not-allowed' : 'pointer' }}>
+                {saving ? 'Guardando…' : 'Guardar'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   )
 }
