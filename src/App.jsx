@@ -359,23 +359,37 @@ function ProductCard({ productKey, active, onSelect }) {
         ))}
       </ul>
 
-      <div style={{ paddingTop: 14, borderTop: `1px dashed ${T.border}` }}>
-        {active && !p.comingSoon && (
-          <span style={{ fontSize: 13, fontWeight: 700, color: p.color }}>
-            Abrir {p.name} →
-          </span>
-        )}
-        {!active && !p.comingSoon && (
-          <a
-            href={p.landingUrl || 'mailto:hola@delenio.net'}
-            target="_blank" rel="noreferrer"
-            onClick={e => e.stopPropagation()}
-            style={{ fontSize: 13, fontWeight: 700, color: T.blue }}
+      {!p.comingSoon && (
+        <div style={{ paddingTop: 14, borderTop: `1px dashed ${T.border}`, display: 'flex', gap: 8 }}>
+          <button
+            onClick={e => { e.stopPropagation(); if (active) window.location.href = p.url }}
+            disabled={!active}
+            style={{
+              flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 700,
+              background: active ? p.color : T.border,
+              color: active ? '#fff' : T.muted,
+              cursor: active ? 'pointer' : 'not-allowed',
+              transition: 'all .15s',
+            }}
           >
-            {p.landingUrl ? 'Ver más →' : 'Contratar →'}
-          </a>
-        )}
-      </div>
+            Acceder →
+          </button>
+          {p.landingUrl && (
+            <a
+              href={p.landingUrl}
+              target="_blank" rel="noreferrer"
+              onClick={e => e.stopPropagation()}
+              style={{
+                flex: 1, padding: '8px 0', borderRadius: 8, border: `1px solid ${T.border}`,
+                fontSize: 12, fontWeight: 700, color: T.blue, textAlign: 'center',
+                background: T.paper, display: 'block',
+              }}
+            >
+              Contratar
+            </a>
+          )}
+        </div>
+      )}
     </div>
   )
 }
