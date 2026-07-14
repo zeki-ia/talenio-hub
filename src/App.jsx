@@ -469,17 +469,37 @@ function ProductCard({ productKey, active, onSelect }) {
 
 // ── Hub ──────────────────────────────────────────────────────────────────────
 
-function HubPage({ user, subscriptions, onLogout }) {
+function HubPage({ user, subscriptions, companyId, onLogout }) {
   const isAdmin = user?.role === 'admin' || user?.email?.endsWith('@delenio.net')
   const allProductKeys = Object.keys(PRODUCTS)
   const subsActive = subscriptions.filter(s => s.status === 'active').map(s => s.product)
   const freemium   = Object.entries(PRODUCTS).filter(([, p]) => p.freemium).map(([k]) => k)
   const activeProducts = isAdmin ? allProductKeys : [...new Set([...subsActive, ...freemium])]
   const paidActive = isAdmin ? allProductKeys.filter(k => !PRODUCTS[k]?.freemium) : subsActive.filter(k => !PRODUCTS[k]?.freemium)
+  const [subError, setSubError] = useState(null)
 
   async function handleSelect(key) {
+    setSubError(null)
+    const p = PRODUCTS[key]
+
+    // Admins siempre pasan
+    if (!isAdmin && !p.freemium) {
+      // Re-chequear suscripción en tiempo real contra la DB (sincronizada con Stripe)
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('status')
+        .eq('company_id', companyId)
+        .eq('product', key)
+        .maybeSingle()
+
+      if (!sub || sub.status !== 'active') {
+        setSubError({ product: p.name, status: sub?.status || 'none' })
+        return
+      }
+    }
+
     const { data: { session } } = await supabase.auth.getSession()
-    const base = PRODUCTS[key].url
+    const base = p.url
     if (session?.access_token) {
       const url = `${base}?access_token=${session.access_token}&refresh_token=${session.refresh_token}`
       window.open(url, '_blank')
@@ -554,6 +574,28 @@ function HubPage({ user, subscriptions, onLogout }) {
           )}
         </div>
       </div>
+
+      {/* Banner error de suscripción */}
+      {subError && (
+        <div style={{ maxWidth: 1020, margin: '16px auto 0', padding: '0 24px' }}>
+          <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 20 }}>⚠️</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 13.5, color: '#991B1B', marginBottom: 2 }}>
+                Suscripción inactiva — {subError.product}
+              </div>
+              <div style={{ fontSize: 12.5, color: '#B91C1C' }}>
+                {subError.status === 'canceled' ? 'La suscripción fue cancelada.' :
+                 subError.status === 'past_due'  ? 'El pago está vencido. Regularizá tu suscripción para acceder.' :
+                 subError.status === 'unpaid'    ? 'Pago pendiente. Revisá tu método de pago.' :
+                 'Tu empresa no tiene una suscripción activa para este producto.'}
+                {' '}<a href="mailto:hola@delenio.net" style={{ color: '#991B1B', fontWeight: 700 }}>Contactanos</a> para solucionarlo.
+              </div>
+            </div>
+            <button onClick={() => setSubError(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#B91C1C', lineHeight: 1, padding: 4 }}>×</button>
+          </div>
+        </div>
+      )}
 
       {/* Grid */}
       <div style={{ maxWidth: 1020, margin: '0 auto', padding: '32px 24px 48px' }}>
@@ -848,5 +890,5 @@ export default function App() {
 
   if (loading)    return <><GlobalStyle/><LoadingScreen message="Cargando tus productos…"/></>
   if (!session)   return <><GlobalStyle/><LoginPage/></>
-  return <><GlobalStyle/><HubPage user={{ ...session.user, role: userRow?.role }} subscriptions={subscriptions} onLogout={handleLogout}/></>
+  return <><GlobalStyle/><HubPage user={{ ...session.user, role: userRow?.role }} subscriptions={subscriptions} companyId={userRow?.company_id} onLogout={handleLogout}/></>
 }
