@@ -383,10 +383,12 @@ function ProductCard({ productKey, active, onSelect }) {
 // ── Hub ──────────────────────────────────────────────────────────────────────
 
 function HubPage({ user, subscriptions, onLogout }) {
+  const isAdmin = user?.role === 'admin'
+  const allProductKeys = Object.keys(PRODUCTS)
   const subsActive = subscriptions.filter(s => s.status === 'active').map(s => s.product)
   const freemium   = Object.entries(PRODUCTS).filter(([, p]) => p.freemium).map(([k]) => k)
-  const activeProducts = [...new Set([...subsActive, ...freemium])]
-  const paidActive = subsActive.filter(k => !PRODUCTS[k]?.freemium)
+  const activeProducts = isAdmin ? allProductKeys : [...new Set([...subsActive, ...freemium])]
+  const paidActive = isAdmin ? allProductKeys.filter(k => !PRODUCTS[k]?.freemium) : subsActive.filter(k => !PRODUCTS[k]?.freemium)
 
   function handleSelect(key) { window.location.href = PRODUCTS[key].url }
 
