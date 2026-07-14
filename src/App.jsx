@@ -383,7 +383,7 @@ function ProductCard({ productKey, active, onSelect }) {
 // ── Hub ──────────────────────────────────────────────────────────────────────
 
 function HubPage({ user, subscriptions, onLogout }) {
-  const isAdmin = user?.role === 'admin'
+  const isAdmin = user?.role === 'admin' || user?.email?.endsWith('@delenio.net')
   const allProductKeys = Object.keys(PRODUCTS)
   const subsActive = subscriptions.filter(s => s.status === 'active').map(s => s.product)
   const freemium   = Object.entries(PRODUCTS).filter(([, p]) => p.freemium).map(([k]) => k)
