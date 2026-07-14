@@ -573,45 +573,81 @@ function HubPage({ user, subscriptions, onLogout }) {
 // ── Admin Panel ───────────────────────────────────────────────────────────────
 
 function AdminPanel() {
-  const [tab, setTab]         = useState('users')
-  const [users, setUsers]     = useState([])
+  const [tab, setTab]             = useState('companies')
+  const [users, setUsers]         = useState([])
   const [companies, setCompanies] = useState([])
-  const [loading, setLoading] = useState(false)
+  const [subs, setSubs]           = useState([])
+  const [loading, setLoading]     = useState(false)
 
-  // Form estados
-  const [newEmail, setNewEmail]       = useState('')
-  const [newName, setNewName]         = useState('')
-  const [newRole, setNewRole]         = useState('client')
-  const [newCompany, setNewCompany]   = useState('')
-  const [newProducts, setNewProducts] = useState([])
-  const [companyName, setCompanyName] = useState('')
-  const [msg, setMsg] = useState('')
-  const [err, setErr] = useState('')
+  // Form usuario
+  const [uEmail, setUEmail]     = useState('')
+  const [uName, setUName]       = useState('')
+  const [uRole, setURole]       = useState('client')
+  const [uCompany, setUCompany] = useState('')
+
+  // Form empresa
+  const [cName, setCName]         = useState('')
+  const [cProducts, setCProducts] = useState([])
+
+  const [msg, setMsg]     = useState('')
+  const [err, setErr]     = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => { loadData() }, [])
 
   async function loadData() {
     setLoading(true)
-    const [{ data: u }, { data: c }] = await Promise.all([
+    const [{ data: u }, { data: c }, { data: s }] = await Promise.all([
       supabase.from('users').select('id, email, role, company_id'),
       supabase.from('companies').select('id, name'),
+      supabase.from('subscriptions').select('company_id, product, status'),
     ])
     setUsers(u || [])
     setCompanies(c || [])
+    setSubs(s || [])
     setLoading(false)
+  }
+
+  // Obtener productos activos de una empresa
+  function companyProducts(companyId) {
+    return subs.filter(s => s.company_id === companyId && s.status === 'active').map(s => s.product)
   }
 
   async function createUser(e) {
     e.preventDefault(); setSaving(true); setMsg(''); setErr('')
     try {
-      const { data, error } = await supabase.auth.signUp({ email: newEmail.trim().toLowerCase(), password: Math.random().toString(36).slice(-10) + 'A1!' })
+      const email = uEmail.trim().toLowerCase()
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password: Math.random().toString(36).slice(-10) + 'A1!',
+        options: { data: { full_name: uName } },
+      })
       if (error) throw error
       const userId = data.user?.id
-      if (!userId) throw new Error('No se pudo crear el usuario')
-      await supabase.from('users').upsert({ id: userId, email: newEmail.trim().toLowerCase(), role: newRole, company_id: newCompany || null }, { onConflict: 'id' })
-      setMsg(`Usuario ${newEmail} creado. Recibirá un email para establecer su contraseña.`)
-      setNewEmail(''); setNewName(''); setNewRole('client'); setNewCompany('')
+      if (!userId) throw new Error('No se pudo crear el usuario en Auth')
+
+      // Tabla core
+      await supabase.from('users').upsert({ id: userId, email, role: uRole, company_id: uCompany || null }, { onConflict: 'id' })
+
+      // Perfiles en cada app según productos de la empresa
+      if (uCompany) {
+        const prods = companyProducts(uCompany)
+        if (prods.includes('climia')) {
+          await supabase.from('climia_profiles').upsert({
+            id: userId, email, name: uName, role: uRole === 'admin' ? 'admin' : 'client',
+            client_id: null, status: 'Activo',
+          }, { onConflict: 'id' })
+        }
+        if (prods.includes('nomia')) {
+          await supabase.from('nomia_perfiles').upsert({
+            id: userId, email, nombre: uName, rol: uRole === 'admin' ? 'admin' : 'cliente',
+            cliente_id: null,
+          }, { onConflict: 'id' })
+        }
+      }
+
+      setMsg(`Usuario ${email} creado. Recibirá un email para establecer su contraseña.`)
+      setUEmail(''); setUName(''); setURole('client'); setUCompany('')
       loadData()
     } catch(e) { setErr(e.message) }
     setSaving(false)
@@ -620,13 +656,24 @@ function AdminPanel() {
   async function createCompany(e) {
     e.preventDefault(); setSaving(true); setMsg(''); setErr('')
     try {
-      const { data, error } = await supabase.from('companies').insert({ name: companyName.trim() }).select().single()
+      const { data, error } = await supabase.from('companies').insert({ name: cName.trim() }).select().single()
       if (error) throw error
-      if (newProducts.length > 0) {
-        await supabase.from('subscriptions').insert(newProducts.map(p => ({ company_id: data.id, product: p, status: 'active', plan: 'base' })))
+      const companyId = data.id
+
+      // Suscripciones
+      if (cProducts.length > 0) {
+        await supabase.from('subscriptions').insert(
+          cProducts.map(p => ({ company_id: companyId, product: p, status: 'active', plan: 'base' }))
+        )
       }
-      setMsg(`Empresa "${companyName}" creada.`)
-      setCompanyName(''); setNewProducts([])
+
+      // Registros en app-tables
+      if (cProducts.includes('nomia')) {
+        await supabase.from('nomia_clientes').insert({ nombre: cName.trim() })
+      }
+
+      setMsg(`Empresa "${cName}" creada con ${cProducts.length} producto(s).`)
+      setCName(''); setCProducts([])
       loadData()
     } catch(e) { setErr(e.message) }
     setSaving(false)
@@ -669,36 +716,42 @@ function AdminPanel() {
 
             {tab === 'users' ? (
               <form onSubmit={createUser} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <div><label style={lbl}>Nombre</label><input style={inp} value={newName} onChange={e => setNewName(e.target.value)} placeholder="Juan Pérez"/></div>
-                <div><label style={lbl}>Email</label><input style={inp} type="email" required value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="usuario@empresa.com"/></div>
+                <div><label style={lbl}>Nombre completo</label><input style={inp} value={uName} onChange={e => setUName(e.target.value)} placeholder="Juan Pérez"/></div>
+                <div><label style={lbl}>Email</label><input style={inp} type="email" required value={uEmail} onChange={e => setUEmail(e.target.value)} placeholder="usuario@empresa.com"/></div>
                 <div>
                   <label style={lbl}>Rol</label>
-                  <select style={inp} value={newRole} onChange={e => setNewRole(e.target.value)}>
+                  <select style={inp} value={uRole} onChange={e => setURole(e.target.value)}>
                     <option value="client">Cliente</option>
                     <option value="admin">Admin</option>
                   </select>
                 </div>
                 <div>
                   <label style={lbl}>Empresa</label>
-                  <select style={inp} value={newCompany} onChange={e => setNewCompany(e.target.value)}>
+                  <select style={inp} value={uCompany} onChange={e => setUCompany(e.target.value)}>
                     <option value="">Sin empresa</option>
                     {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
+                {uCompany && (
+                  <div style={{ background: T.blueSoft, borderRadius: 8, padding: '8px 12px', fontSize: 12, color: T.blue }}>
+                    Se crearán perfiles en: {companyProducts(uCompany).filter(p => ['climia','nomia'].includes(p)).map(p => PRODUCTS[p]?.name).join(', ') || 'ninguna app específica aún'}
+                  </div>
+                )}
                 <button type="submit" disabled={saving} style={{ padding: '10px', borderRadius: 9, border: 'none', background: T.blue, color: '#fff', fontWeight: 700, fontSize: 13, cursor: saving ? 'not-allowed' : 'pointer' }}>
                   {saving ? 'Creando…' : 'Crear usuario'}
                 </button>
               </form>
             ) : (
               <form onSubmit={createCompany} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <div><label style={lbl}>Nombre de la empresa</label><input style={inp} required value={companyName} onChange={e => setCompanyName(e.target.value)} placeholder="Empresa S.A."/></div>
+                <div><label style={lbl}>Nombre de la empresa</label><input style={inp} required value={cName} onChange={e => setCName(e.target.value)} placeholder="Empresa S.A."/></div>
                 <div>
                   <label style={lbl}>Productos activos</label>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
                     {Object.entries(PRODUCTS).filter(([,p]) => !p.freemium).map(([key, p]) => (
-                      <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={newProducts.includes(key)} onChange={e => setNewProducts(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
+                      <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '6px 10px', borderRadius: 8, background: cProducts.includes(key) ? p.colorSoft : T.bg }}>
+                        <input type="checkbox" checked={cProducts.includes(key)} onChange={e => setCProducts(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
                         <span style={{ color: p.color, fontWeight: 700 }}>{p.name}</span>
+                        <span style={{ color: T.muted, fontSize: 11 }}>{p.tagline}</span>
                       </label>
                     ))}
                   </div>
@@ -716,10 +769,10 @@ function AdminPanel() {
               {tab === 'users' ? `Usuarios (${users.length})` : `Empresas (${companies.length})`}
             </h3>
             {loading ? <Spinner/> : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 380, overflowY: 'auto' }}>
                 {tab === 'users' ? users.map(u => (
                   <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: T.bg }}>
-                    <div style={{ width: 28, height: 28, borderRadius: '50%', background: T.blueSoft, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, color: T.blue, flexShrink: 0 }}>
+                    <div style={{ width: 30, height: 30, borderRadius: '50%', background: T.blueSoft, display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 800, color: T.blue, flexShrink: 0 }}>
                       {u.email?.[0]?.toUpperCase()}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -727,14 +780,26 @@ function AdminPanel() {
                       <div style={{ fontSize: 11, color: T.muted }}>{u.role} · {companies.find(c => c.id === u.company_id)?.name || 'Sin empresa'}</div>
                     </div>
                   </div>
-                )) : companies.map(c => (
-                  <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: T.bg }}>
-                    <div style={{ width: 28, height: 28, borderRadius: 8, background: T.blueSoft, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, color: T.blue, flexShrink: 0 }}>
-                      {c.name?.[0]?.toUpperCase()}
+                )) : companies.map(c => {
+                  const prods = companyProducts(c.id)
+                  return (
+                    <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: T.bg }}>
+                      <div style={{ width: 30, height: 30, borderRadius: 8, background: T.blueSoft, display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 800, color: T.blue, flexShrink: 0 }}>
+                        {c.name?.[0]?.toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: T.navy }}>{c.name}</div>
+                        <div style={{ display: 'flex', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
+                          {prods.map(p => (
+                            <span key={p} style={{ fontSize: 10, fontWeight: 700, color: PRODUCTS[p]?.color || T.muted, background: PRODUCTS[p]?.colorSoft || T.bg, padding: '1px 6px', borderRadius: 4 }}>
+                              {PRODUCTS[p]?.name || p}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: T.navy }}>{c.name}</div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
