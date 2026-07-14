@@ -475,29 +475,31 @@ function HubPage({ user, subscriptions, onLogout }) {
 
 export default function App() {
   const [session, setSession]             = useState(null)
+  const [userRow, setUserRow]             = useState(null)
   const [subscriptions, setSubscriptions] = useState([])
   const [loading, setLoading]             = useState(true)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      if (session) loadSubscriptions(session.user.id)
+      if (session) loadUserData(session.user.id)
       else setLoading(false)
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
       setSession(session)
-      if (session) loadSubscriptions(session.user.id)
-      else { setSubscriptions([]); setLoading(false) }
+      if (session) loadUserData(session.user.id)
+      else { setUserRow(null); setSubscriptions([]); setLoading(false) }
     })
     return () => subscription.unsubscribe()
   }, [])
 
-  async function loadSubscriptions(userId) {
+  async function loadUserData(userId) {
     setLoading(true)
     try {
-      const { data: userRow } = await supabase.from('users').select('company_id').eq('id', userId).maybeSingle()
-      if (userRow?.company_id) {
-        const { data: subs } = await supabase.from('subscriptions').select('product, plan, status').eq('company_id', userRow.company_id)
+      const { data: row } = await supabase.from('users').select('company_id, role').eq('id', userId).maybeSingle()
+      setUserRow(row)
+      if (row?.company_id) {
+        const { data: subs } = await supabase.from('subscriptions').select('product, plan, status').eq('company_id', row.company_id)
         setSubscriptions(subs || [])
       }
     } catch (e) { console.error(e) }
@@ -508,5 +510,5 @@ export default function App() {
 
   if (loading)    return <><GlobalStyle/><LoadingScreen message="Cargando tus productos…"/></>
   if (!session)   return <><GlobalStyle/><LoginPage/></>
-  return <><GlobalStyle/><HubPage user={session.user} subscriptions={subscriptions} onLogout={handleLogout}/></>
+  return <><GlobalStyle/><HubPage user={{ ...session.user, role: userRow?.role }} subscriptions={subscriptions} onLogout={handleLogout}/></>
 }
