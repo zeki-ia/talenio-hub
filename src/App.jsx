@@ -34,7 +34,7 @@ const PRODUCTS = {
     colorSoft:  '#F7F0FA',
     colorMid:   '#9B2DA3',
     url:        import.meta.env.VITE_CLIMIA_URL   || 'https://climia.vercel.app',
-    landingUrl: 'https://climia.talenium.tech',
+    landingUrl: 'https://climia.talenio.tech',
     features:   ['Encuestas de pulso', 'Análisis por área', 'Informe ejecutivo IA'],
   },
   promotia: {
@@ -44,7 +44,7 @@ const PRODUCTS = {
     colorSoft:  '#FDF0F7',
     colorMid:   '#DB2777',
     url:        import.meta.env.VITE_PROMOTIA_URL  || 'https://app.promotia.talenio.tech',
-    landingUrl: 'https://promotia.talenium.tech',
+    landingUrl: 'https://promotia.talenio.tech',
     features:   ['Encuestas NPS', 'Análisis de detractores', 'Plan de acción IA'],
   },
   bandas: {
@@ -64,7 +64,7 @@ const PRODUCTS = {
     colorSoft:  '#F0FDFA',
     colorMid:   '#0D9488',
     url:        import.meta.env.VITE_NOMIA_URL     || 'https://nomia.talenio.tech',
-    landingUrl: 'https://nomia.talenium.tech',
+    landingUrl: 'https://nomia.talenio.tech',
     features:   ['Presupuesto de nómina', 'Real vs presupuesto', 'Escenarios y proyecciones'],
   },
 }
