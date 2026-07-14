@@ -51,7 +51,7 @@ export default async function handler(req, res) {
       // ── Lectura de datos (bypasa RLS con service role) ────────────────────
       case 'getData': {
         const [{ data: users }, { data: companies }, { data: subs }] = await Promise.all([
-          supabase.from('users').select('id, email, role, company_id'),
+          supabase.from('users').select('id, email, role, company_id, products'),
           supabase.from('companies').select('id, name, is_active'),
           supabase.from('subscriptions').select('company_id, product, status'),
         ])
@@ -143,7 +143,7 @@ export default async function handler(req, res) {
       // ── Usuarios ─────────────────────────────────────────────────────────
 
       case 'createUser': {
-        const { email, name, role = 'client', company_id } = params
+        const { email, name, role = 'client', company_id, products = [] } = params
         if (!email?.trim()) return res.status(400).json({ error: 'Email requerido' })
 
         const emailLower = email.trim().toLowerCase()
@@ -163,48 +163,64 @@ export default async function handler(req, res) {
           userId = found.id
         }
 
-        // Tabla core
+        // Tabla core — guarda products[] para controlar acceso por usuario
         await supabase.from('users').upsert(
-          { id: userId, email: emailLower, role, company_id: company_id || null },
+          { id: userId, email: emailLower, role, company_id: company_id || null, products },
           { onConflict: 'id' }
         )
 
-        // Perfiles en apps según productos de la empresa
-        if (company_id) {
-          const { data: subs } = await supabase
-            .from('subscriptions')
-            .select('product')
-            .eq('company_id', company_id)
-            .eq('status', 'active')
-          const prods = (subs || []).map(s => s.product)
-
-          if (prods.includes('climia')) {
-            await supabase.from('climia_profiles').upsert({
-              id: userId, email: emailLower, name: name || emailLower,
-              role: role === 'admin' ? 'admin' : 'cliente', client_id: null, status: 'Activo',
-            }, { onConflict: 'id' })
-          }
-          if (prods.includes('nomia')) {
-            await supabase.from('nomia_perfiles').upsert({
-              id: userId, email: emailLower, nombre: name || emailLower,
-              rol: role === 'admin' ? 'admin' : 'cliente', cliente_id: null,
-            }, { onConflict: 'id' })
-          }
+        // Perfiles en apps según productos seleccionados para este usuario
+        if (products.includes('climia')) {
+          await supabase.from('climia_profiles').upsert({
+            id: userId, email: emailLower, name: name || emailLower,
+            role: role === 'admin' ? 'admin' : 'cliente', client_id: null, status: 'Activo',
+          }, { onConflict: 'id' })
         }
+        if (products.includes('nomia')) {
+          await supabase.from('nomia_perfiles').upsert({
+            id: userId, email: emailLower, nombre: name || emailLower,
+            rol: role === 'admin' ? 'admin' : 'cliente', cliente_id: null,
+          }, { onConflict: 'id' })
+        }
+        // PromotIA usa users.products directamente — no necesita tabla de perfiles separada
 
         return res.json({ ok: true, userId })
       }
 
       case 'updateUser': {
-        const { id, role, company_id } = params
+        const { id, role, company_id, products } = params
         if (!id) return res.status(400).json({ error: 'id requerido' })
 
         const updates = {}
         if (role !== undefined)      updates.role       = role
         if (company_id !== undefined) updates.company_id = company_id || null
+        if (products !== undefined)   updates.products   = products
 
         if (Object.keys(updates).length) {
           await supabase.from('users').update(updates).eq('id', id)
+        }
+
+        // Sincronizar perfiles en apps si cambió products
+        if (products !== undefined) {
+          // Obtener nombre/email del usuario para los perfiles
+          const { data: uRow } = await supabase.from('users').select('email').eq('id', id).maybeSingle()
+          const emailLower = uRow?.email || ''
+
+          if (products.includes('climia')) {
+            await supabase.from('climia_profiles').upsert({
+              id, email: emailLower, name: emailLower,
+              role: role === 'admin' ? 'admin' : 'cliente', client_id: null, status: 'Activo',
+            }, { onConflict: 'id' })
+          } else {
+            // Suspender acceso en Climia si se removió el producto
+            await supabase.from('climia_profiles').update({ status: 'Suspendido' }).eq('id', id)
+          }
+          if (products.includes('nomia')) {
+            await supabase.from('nomia_perfiles').upsert({
+              id, email: emailLower, nombre: emailLower,
+              rol: role === 'admin' ? 'admin' : 'cliente', cliente_id: null,
+            }, { onConflict: 'id' })
+          }
         }
 
         return res.json({ ok: true })

@@ -662,10 +662,11 @@ function AdminPanel() {
   const [err, setErr]             = useState('')
 
   // Crear usuario
-  const [uEmail, setUEmail]     = useState('')
-  const [uName, setUName]       = useState('')
-  const [uRole, setURole]       = useState('client')
-  const [uCompany, setUCompany] = useState('')
+  const [uEmail, setUEmail]       = useState('')
+  const [uName, setUName]         = useState('')
+  const [uRole, setURole]         = useState('client')
+  const [uCompany, setUCompany]   = useState('')
+  const [uProducts, setUProducts] = useState([])
 
   // Crear empresa
   const [cName, setCName]         = useState('')
@@ -678,9 +679,10 @@ function AdminPanel() {
   const [editCoActive, setEditCoActive]   = useState(true)
 
   // Editar usuario
-  const [editUser, setEditUser]     = useState(null)
-  const [editUserRole, setEditUserRole]   = useState('client')
+  const [editUser, setEditUser]             = useState(null)
+  const [editUserRole, setEditUserRole]     = useState('client')
   const [editUserCompany, setEditUserCompany] = useState('')
+  const [editUserProds, setEditUserProds]   = useState([])
 
   useEffect(() => { loadData() }, [])
 
@@ -709,9 +711,9 @@ function AdminPanel() {
   async function createUser(e) {
     e.preventDefault(); setSaving(true)
     try {
-      await adminCall('createUser', { email: uEmail, name: uName, role: uRole, company_id: uCompany || null })
+      await adminCall('createUser', { email: uEmail, name: uName, role: uRole, company_id: uCompany || null, products: uProducts })
       flash(true, `Usuario ${uEmail} creado. Recibirá un email de invitación.`)
-      setUEmail(''); setUName(''); setURole('client'); setUCompany('')
+      setUEmail(''); setUName(''); setURole('client'); setUCompany(''); setUProducts([])
       loadData()
     } catch(e) { flash(false, e.message) }
     setSaving(false)
@@ -761,12 +763,13 @@ function AdminPanel() {
     setEditUser(u)
     setEditUserRole(u.role)
     setEditUserCompany(u.company_id || '')
+    setEditUserProds(u.products || [])
   }
 
   async function saveEditUser(e) {
     e.preventDefault(); setSaving(true)
     try {
-      await adminCall('updateUser', { id: editUser.id, role: editUserRole, company_id: editUserCompany || null })
+      await adminCall('updateUser', { id: editUser.id, role: editUserRole, company_id: editUserCompany || null, products: editUserProds })
       flash(true, 'Usuario actualizado.')
       setEditUser(null)
       loadData()
@@ -861,16 +864,30 @@ function AdminPanel() {
                 </div>
                 <div>
                   <label style={lbl}>Empresa</label>
-                  <select style={inp} value={uCompany} onChange={e => setUCompany(e.target.value)}>
+                  <select style={inp} value={uCompany} onChange={e => { setUCompany(e.target.value); setUProducts([]) }}>
                     <option value="">Sin empresa</option>
                     {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
-                {uCompany && (
-                  <div style={{ background: T.blueSoft, borderRadius: 8, padding: '8px 12px', fontSize: 12, color: T.blue }}>
-                    Perfiles: {companyProducts(uCompany).filter(p => ['climia','nomia'].includes(p)).map(p => PRODUCTS[p]?.name).join(', ') || 'sin apps específicas aún'}
-                  </div>
-                )}
+                {uCompany && (() => {
+                  const available = companyProducts(uCompany).filter(p => !PRODUCTS[p]?.freemium)
+                  return available.length > 0 ? (
+                    <div>
+                      <label style={lbl}>Acceso a productos</label>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {available.map(key => {
+                          const p = PRODUCTS[key]
+                          return (
+                            <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '7px 10px', borderRadius: 8, background: uProducts.includes(key) ? (p.colorSoft || T.blueSoft) : T.bg, border: `1px solid ${uProducts.includes(key) ? p.color + '40' : T.border}` }}>
+                              <input type="checkbox" checked={uProducts.includes(key)} onChange={e => setUProducts(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
+                              <span style={{ color: p.color, fontWeight: 700 }}>{p.name}</span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ) : <div style={{ fontSize: 12, color: T.muted, padding: '6px 0' }}>Esta empresa no tiene productos activos aún.</div>
+                })()}
                 <button type="submit" disabled={saving} style={{ padding: '10px', borderRadius: 9, border: 'none', background: T.blue, color: '#fff', fontWeight: 700, fontSize: 13, cursor: saving ? 'not-allowed' : 'pointer' }}>
                   {saving ? 'Creando…' : 'Crear usuario'}
                 </button>
@@ -993,11 +1010,30 @@ function AdminPanel() {
             </div>
             <div>
               <label style={lbl}>Empresa</label>
-              <select style={inp} value={editUserCompany} onChange={e => setEditUserCompany(e.target.value)}>
+              <select style={inp} value={editUserCompany} onChange={e => { setEditUserCompany(e.target.value); setEditUserProds([]) }}>
                 <option value="">Sin empresa</option>
                 {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
+            {editUserCompany && (() => {
+              const available = companyProducts(editUserCompany).filter(p => !PRODUCTS[p]?.freemium)
+              return available.length > 0 ? (
+                <div>
+                  <label style={lbl}>Acceso a productos</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {available.map(key => {
+                      const p = PRODUCTS[key]
+                      return (
+                        <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '7px 10px', borderRadius: 8, background: editUserProds.includes(key) ? (p.colorSoft || T.blueSoft) : T.bg, border: `1px solid ${editUserProds.includes(key) ? p.color + '40' : T.border}` }}>
+                          <input type="checkbox" checked={editUserProds.includes(key)} onChange={e => setEditUserProds(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
+                          <span style={{ color: p.color, fontWeight: 700 }}>{p.name}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null
+            })()}
             <div style={{ display: 'flex', gap: 10 }}>
               <button type="button" onClick={() => setEditUser(null)} style={{ flex: 1, padding: '10px', borderRadius: 9, border: `1px solid ${T.border}`, background: T.bg, color: T.muted, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
                 Cancelar
