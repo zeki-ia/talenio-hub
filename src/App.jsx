@@ -12,6 +12,7 @@ const PRODUCTS = {
     color: '#059669',
     colorSoft: '#ECFDF5',
     url: import.meta.env.VITE_CLIMIA_URL || 'https://climia.vercel.app',
+    landingUrl: 'https://climia.talenium.tech',
     features: ['Encuestas de pulso', 'Análisis por área', 'Informe ejecutivo IA'],
     icon: ClimiaIcon,
   },
@@ -21,6 +22,7 @@ const PRODUCTS = {
     color: '#DB2777',
     colorSoft: '#FDF2F8',
     url: import.meta.env.VITE_PROMOTIA_URL || 'https://app.promotia.talenio.tech',
+    landingUrl: 'https://promotia.talenium.tech',
     features: ['Encuestas NPS', 'Análisis de detractores', 'Plan de acción IA'],
     icon: PromotiaIcon,
   },
@@ -32,6 +34,7 @@ const PRODUCTS = {
     url: import.meta.env.VITE_BANDAS_URL || 'https://bandas.talenio.tech',
     features: ['Estudios gratuitos de mercado', 'Comparación por sector', 'Rangos por posición'],
     icon: BandasIcon,
+    freemium: true,
   },
   nomia: {
     name: 'Nomia',
@@ -41,6 +44,7 @@ const PRODUCTS = {
     url: import.meta.env.VITE_NOMIA_URL || 'https://nomia.talenio.tech',
     features: ['Presupuesto de nómina', 'Real vs presupuesto', 'Escenarios y proyecciones'],
     icon: NomiaIcon,
+    landingUrl: 'https://nomia.talenium.tech',
   },
 }
 
@@ -294,7 +298,9 @@ function ProductCard({ productKey, active, onSelect }) {
           <span style={{ fontSize: 13, fontWeight: 700, color: p.color }}>Abrir {p.name} →</span>
         )}
         {!active && !p.comingSoon && (
-          <a href="mailto:hola@delenio.net" style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>Contratar →</a>
+          <a href={p.landingUrl || 'mailto:hola@delenio.net'} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 700, color: C.accent }}>
+            {p.landingUrl ? 'Ver más →' : 'Contratar →'}
+          </a>
         )}
       </div>
     </div>
@@ -304,7 +310,10 @@ function ProductCard({ productKey, active, onSelect }) {
 // ── Hub ──────────────────────────────────────────────────────────────────────
 
 function HubPage({ user, subscriptions, onLogout }) {
-  const activeProducts = subscriptions.filter(s => s.status === 'active').map(s => s.product)
+  const subsActive = subscriptions.filter(s => s.status === 'active').map(s => s.product)
+  // Productos freemium siempre activos para usuarios logueados
+  const freemiumProducts = Object.entries(PRODUCTS).filter(([, p]) => p.freemium).map(([k]) => k)
+  const activeProducts = [...new Set([...subsActive, ...freemiumProducts])]
 
   function handleSelect(productKey) {
     window.location.href = PRODUCTS[productKey].url
