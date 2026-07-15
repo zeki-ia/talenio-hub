@@ -531,14 +531,11 @@ function HubPage({ user, subscriptions, companyId, onLogout }) {
       }
     }
 
-    // Genera magic link para SSO — Supabase lo procesa nativamente vía hash fragment
-    try {
-      const { url: loginUrl } = await adminCall('generateLoginLink', { email: user.email, redirectTo: p.url })
-      if (!loginUrl) { setSubError({ product: p.name, status: 'link_error' }); return }
-      window.open(loginUrl, '_blank')
-    } catch (e) {
-      setSubError({ product: p.name, status: 'link_error' })
-    }
+    // SSO via hash fragment — Supabase JS lo detecta y procesa automáticamente al cargar la app
+    const { data: { session: s } } = await supabase.auth.getSession()
+    if (!s?.access_token) { setSubError({ product: p.name, status: 'link_error' }); return }
+    const hash = `#access_token=${s.access_token}&refresh_token=${s.refresh_token}&expires_in=3600&token_type=bearer`
+    window.open(`${p.url}/${hash}`, '_blank')
   }
 
   useEffect(() => {
@@ -1315,17 +1312,15 @@ export default function App() {
         const { data: subs } = await supabase.from('subscriptions').select('product, plan, status').eq('company_id', row.company_id)
         setSubscriptions(subs || [])
       }
-      // SSO redirect: si hay ?redirect= en la URL, generamos magic link para la app destino
+      // SSO redirect: si hay ?redirect= en la URL, mandamos al usuario de vuelta con tokens en hash
       if (redirectTarget.current) {
         const { data: { session: s } } = await supabase.auth.getSession()
-        if (s?.user?.email) {
+        if (s?.access_token) {
           try {
-            const { url: loginUrl } = await adminCall('generateLoginLink', {
-              email: s.user.email,
-              redirectTo: redirectTarget.current,
-            })
-            if (loginUrl) { window.location.href = loginUrl; return }
-          } catch (e) { console.error('generateLoginLink error:', e) }
+            const hash = `#access_token=${s.access_token}&refresh_token=${s.refresh_token}&expires_in=3600&token_type=bearer`
+            window.location.href = `${redirectTarget.current}/${hash}`
+            return
+          } catch { /* URL inválida */ }
         }
       }
     } catch (e) { console.error(e) }
