@@ -1306,8 +1306,19 @@ export default function App() {
   async function loadUserData(userId) {
     setLoading(true)
     try {
-      const { data: row } = await supabase.from('users').select('company_id, role').eq('id', userId).maybeSingle()
+      const { data: row } = await supabase.from('users').select('company_id, role, email').eq('id', userId).maybeSingle()
       setUserRow(row)
+
+      // Sincronizar perfiles de admin en todas las apps via service role (bypasa RLS)
+      const { data: { session: s } } = await supabase.auth.getSession()
+      const email = s?.user?.email || row?.email || ''
+      if (email.endsWith('@delenio.net') || row?.role === 'admin') {
+        fetch('/api/admin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s?.access_token}` },
+          body: JSON.stringify({ action: 'syncAdminProfiles', adminUserId: userId, adminEmail: email }),
+        }).catch(() => {})
+      }
       if (row?.company_id) {
         const { data: subs } = await supabase.from('subscriptions').select('product, plan, status').eq('company_id', row.company_id)
         setSubscriptions(subs || [])

@@ -58,6 +58,28 @@ export default async function handler(req, res) {
     switch (action) {
 
       // ── Acceso gratuito / bonificación ──────────────────────────────────
+      // ── Sincronizar perfiles de admin en todas las apps ──────────────────
+      case 'syncAdminProfiles': {
+        const { adminUserId, adminEmail } = params
+        if (!adminUserId || !adminEmail) return res.status(400).json({ error: 'adminUserId y adminEmail requeridos' })
+        const nombre = adminEmail.split('@')[0]
+
+        await supabase.from('nomia_perfiles').upsert(
+          { id: adminUserId, email: adminEmail, nombre, rol: 'admin', cliente_id: null },
+          { onConflict: 'id' }
+        )
+        await supabase.from('climia_profiles').upsert(
+          { id: adminUserId, email: adminEmail, name: nombre, role: 'admin', client_id: null, status: 'Activo' },
+          { onConflict: 'id' }
+        )
+        await supabase.from('users').upsert(
+          { id: adminUserId, email: adminEmail, role: 'admin' },
+          { onConflict: 'id' }
+        )
+        return res.json({ ok: true })
+      }
+
+      // ── Acceso gratuito / bonificación ──────────────────────────────────
       case 'grantFreeAccess': {
         const { company_id, product } = params
         if (!company_id || !product) return res.status(400).json({ error: 'company_id y product requeridos' })
@@ -192,7 +214,7 @@ export default async function handler(req, res) {
             console.log('[climia_clients] exists:', exists, '| checkErr:', checkErr?.message)
             if (!exists) {
               const code = coName.slice(0, 3).toUpperCase().replace(/\s/g, '') + '-' + Math.random().toString(36).slice(2, 6).toUpperCase()
-              const { error: insertErr } = await supabase.from('climia_clients').insert({ name: coName, code, surveyToken: crypto.randomUUID() })
+              const { error: insertErr } = await supabase.from('climia_clients').insert({ name: coName, code, survey_token: crypto.randomUUID() })
               console.log('[climia_clients] insert error:', insertErr?.message || 'OK')
             }
           }
