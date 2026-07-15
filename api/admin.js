@@ -178,15 +178,22 @@ export default async function handler(req, res) {
           const coName = coRow?.name || name?.trim() || ''
           const activeAfter = products // los que el usuario envió son los que deben quedar activos
 
+          console.log('[updateCompany] coName:', coName, '| activeAfter:', activeAfter)
           if (activeAfter.includes('nomia')) {
-            const { data: exists } = await supabase.from('nomia_clientes').select('id').eq('nombre', coName).maybeSingle()
-            if (!exists) await supabase.from('nomia_clientes').insert({ nombre: coName })
+            const { data: exists, error: checkErr } = await supabase.from('nomia_clientes').select('id').eq('nombre', coName).maybeSingle()
+            console.log('[nomia_clientes] exists:', exists, '| checkErr:', checkErr?.message)
+            if (!exists) {
+              const { error: insertErr } = await supabase.from('nomia_clientes').insert({ nombre: coName })
+              console.log('[nomia_clientes] insert error:', insertErr?.message || 'OK')
+            }
           }
           if (activeAfter.includes('climia')) {
-            const { data: exists } = await supabase.from('climia_clients').select('id').eq('name', coName).maybeSingle()
+            const { data: exists, error: checkErr } = await supabase.from('climia_clients').select('id').eq('name', coName).maybeSingle()
+            console.log('[climia_clients] exists:', exists, '| checkErr:', checkErr?.message)
             if (!exists) {
               const code = coName.slice(0, 3).toUpperCase().replace(/\s/g, '') + '-' + Math.random().toString(36).slice(2, 6).toUpperCase()
-              await supabase.from('climia_clients').insert({ name: coName, code, surveyToken: crypto.randomUUID() })
+              const { error: insertErr } = await supabase.from('climia_clients').insert({ name: coName, code, surveyToken: crypto.randomUUID() })
+              console.log('[climia_clients] insert error:', insertErr?.message || 'OK')
             }
           }
         }
