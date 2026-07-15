@@ -57,6 +57,28 @@ export default async function handler(req, res) {
   try {
     switch (action) {
 
+      // ── Acceso gratuito / bonificación ──────────────────────────────────
+      case 'grantFreeAccess': {
+        const { company_id, product } = params
+        if (!company_id || !product) return res.status(400).json({ error: 'company_id y product requeridos' })
+        const { error } = await supabase.from('subscriptions').upsert(
+          { company_id, product, status: 'active', plan: 'gratis' },
+          { onConflict: 'company_id,product' }
+        )
+        if (error) return res.status(400).json({ error: error.message })
+        return res.json({ ok: true })
+      }
+
+      case 'revokeAccess': {
+        const { company_id, product } = params
+        if (!company_id || !product) return res.status(400).json({ error: 'company_id y product requeridos' })
+        const { error } = await supabase.from('subscriptions')
+          .update({ status: 'canceled' })
+          .eq('company_id', company_id).eq('product', product)
+        if (error) return res.status(400).json({ error: error.message })
+        return res.json({ ok: true })
+      }
+
       // ── SSO: genera magic link para login en otra app ───────────────────
       case 'generateLoginLink': {
         const { email, redirectTo } = params

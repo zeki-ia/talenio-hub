@@ -745,6 +745,27 @@ function AdminPanel() {
     setSaving(false)
   }
 
+  async function grantFreeAccess(company, product) {
+    setSaving(true)
+    try {
+      await adminCall('grantFreeAccess', { company_id: company.id, product })
+      flash(true, `Acceso gratuito a ${PRODUCTS[product]?.name} otorgado a "${company.name}".`)
+      loadData()
+    } catch(e) { flash(false, e.message) }
+    setSaving(false)
+  }
+
+  async function revokeAccess(company, product) {
+    if (!confirm(`¿Revocar acceso de "${company.name}" a ${PRODUCTS[product]?.name}?`)) return
+    setSaving(true)
+    try {
+      await adminCall('revokeAccess', { company_id: company.id, product })
+      flash(true, `Acceso a ${PRODUCTS[product]?.name} revocado.`)
+      loadData()
+    } catch(e) { flash(false, e.message) }
+    setSaving(false)
+  }
+
   async function abrirPortal(company) {
     if (!company.stripe_customer_id) { flash(false, 'Esta empresa no tiene un cliente Stripe asignado todavía.'); return }
     setSaving(true)
@@ -951,23 +972,49 @@ function AdminPanel() {
                                 </span>
                               </div>
 
-                              {!isActive || !c.stripe_customer_id ? (
+                              {isActive && c.stripe_customer_id ? (
+                                // Suscripción Stripe activa → portal + revocar
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                                  {isActive && !c.stripe_customer_id && (
-                                    <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 2 }}>Manual — migrar a Stripe:</div>
-                                  )}
+                                  <button onClick={() => abrirPortal(c)} disabled={saving}
+                                    style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: `1px solid ${p.color}40`, background: '#fff', fontSize: 11.5, fontWeight: 600, color: p.color, cursor: saving ? 'not-allowed' : 'pointer' }}>
+                                    Gestionar plan ↗
+                                  </button>
+                                  <button onClick={() => revokeAccess(c, key)} disabled={saving}
+                                    style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: '1px solid #FECACA', background: '#FEF2F2', fontSize: 11.5, fontWeight: 600, color: '#DC2626', cursor: saving ? 'not-allowed' : 'pointer' }}>
+                                    Revocar acceso
+                                  </button>
+                                </div>
+                              ) : isActive && !c.stripe_customer_id ? (
+                                // Acceso gratuito/manual → migrar a Stripe + revocar
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                  <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 1 }}>
+                                    {sub?.plan === 'gratis' ? '🎁 Acceso gratuito' : 'Manual — sin Stripe'}
+                                  </div>
                                   {plans.map(plan => (
                                     <button key={plan} onClick={() => generarCheckout(c, key, plan)} disabled={saving}
-                                      style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${p.color}40`, background: '#fff', fontSize: 11.5, fontWeight: 600, color: p.color, cursor: saving ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
-                                      {saving ? 'Generando…' : isActive ? `Migrar a plan ${plan}` : `Activar plan ${plan}`}
+                                      style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${p.color}40`, background: '#fff', fontSize: 11.5, fontWeight: 600, color: p.color, cursor: saving ? 'not-allowed' : 'pointer' }}>
+                                      {saving ? 'Generando…' : `Migrar a plan ${plan}`}
                                     </button>
                                   ))}
+                                  <button onClick={() => revokeAccess(c, key)} disabled={saving}
+                                    style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: '1px solid #FECACA', background: '#FEF2F2', fontSize: 11.5, fontWeight: 600, color: '#DC2626', cursor: saving ? 'not-allowed' : 'pointer' }}>
+                                    Revocar acceso
+                                  </button>
                                 </div>
                               ) : (
-                                <button onClick={() => abrirPortal(c)} disabled={saving}
-                                  style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: `1px solid ${p.color}40`, background: '#fff', fontSize: 11.5, fontWeight: 600, color: p.color, cursor: saving ? 'not-allowed' : 'pointer' }}>
-                                  Gestionar plan ↗
-                                </button>
+                                // Sin suscripción → activar con Stripe o bonificar
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                  {plans.map(plan => (
+                                    <button key={plan} onClick={() => generarCheckout(c, key, plan)} disabled={saving}
+                                      style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${p.color}40`, background: '#fff', fontSize: 11.5, fontWeight: 600, color: p.color, cursor: saving ? 'not-allowed' : 'pointer' }}>
+                                      {saving ? 'Generando…' : `Activar plan ${plan}`}
+                                    </button>
+                                  ))}
+                                  <button onClick={() => grantFreeAccess(c, key)} disabled={saving}
+                                    style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: '1px solid #BBF7D0', background: '#F0FDF4', fontSize: 11.5, fontWeight: 700, color: '#166534', cursor: saving ? 'not-allowed' : 'pointer' }}>
+                                    🎁 Bonificar acceso
+                                  </button>
+                                </div>
                               )}
                             </div>
                           )
