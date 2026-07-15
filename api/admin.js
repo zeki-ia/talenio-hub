@@ -165,8 +165,9 @@ export default async function handler(req, res) {
           const toRemove = currentActive.filter(p => !products.includes(p))
 
           if (toAdd.length) {
-            await supabase.from('subscriptions').insert(
-              toAdd.map(p => ({ company_id: id, product: p, status: 'active', plan: 'base' }))
+            await supabase.from('subscriptions').upsert(
+              toAdd.map(p => ({ company_id: id, product: p, status: 'active', plan: 'base' })),
+              { onConflict: 'company_id,product' }
             )
 
             // Obtener nombre de empresa para crear registros en las apps
