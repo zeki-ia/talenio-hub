@@ -951,18 +951,21 @@ function AdminPanel() {
                                 </span>
                               </div>
 
-                              {!isActive ? (
+                              {!isActive || !c.stripe_customer_id ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                  {isActive && !c.stripe_customer_id && (
+                                    <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 2 }}>Manual — migrar a Stripe:</div>
+                                  )}
                                   {plans.map(plan => (
                                     <button key={plan} onClick={() => generarCheckout(c, key, plan)} disabled={saving}
                                       style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${p.color}40`, background: '#fff', fontSize: 11.5, fontWeight: 600, color: p.color, cursor: saving ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
-                                      {saving ? 'Generando…' : `Activar plan ${plan}`}
+                                      {saving ? 'Generando…' : isActive ? `Migrar a plan ${plan}` : `Activar plan ${plan}`}
                                     </button>
                                   ))}
                                 </div>
                               ) : (
-                                <button onClick={() => abrirPortal(c)} disabled={saving || !c.stripe_customer_id}
-                                  style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: `1px solid ${p.color}40`, background: '#fff', fontSize: 11.5, fontWeight: 600, color: p.color, cursor: (saving || !c.stripe_customer_id) ? 'not-allowed' : 'pointer' }}>
+                                <button onClick={() => abrirPortal(c)} disabled={saving}
+                                  style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: `1px solid ${p.color}40`, background: '#fff', fontSize: 11.5, fontWeight: 600, color: p.color, cursor: saving ? 'not-allowed' : 'pointer' }}>
                                   Gestionar plan ↗
                                 </button>
                               )}
