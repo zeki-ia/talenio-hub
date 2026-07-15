@@ -121,9 +121,20 @@ export default async function handler(req, res) {
           )
         }
 
-        // Crear entrada en nomia_clientes si corresponde
+        // Crear registros en cada app según los productos seleccionados
         if (products.includes('nomia')) {
           await supabase.from('nomia_clientes').insert({ nombre: name.trim() })
+        }
+
+        if (products.includes('climia')) {
+          const code = name.trim().slice(0, 3).toUpperCase().replace(/\s/g, '') + '-' + Math.random().toString(36).slice(2, 6).toUpperCase()
+          const surveyToken = crypto.randomUUID()
+          await supabase.from('climia_clients').insert({ name: name.trim(), code, surveyToken })
+        }
+
+        if (products.includes('promotia')) {
+          // PromotIA usa client_code en la tabla users — no requiere tabla de clientes separada
+          // El client_code se asigna al crear usuarios de esa empresa
         }
 
         return res.json({ ok: true, company })
@@ -157,6 +168,22 @@ export default async function handler(req, res) {
             await supabase.from('subscriptions').insert(
               toAdd.map(p => ({ company_id: id, product: p, status: 'active', plan: 'base' }))
             )
+
+            // Obtener nombre de empresa para crear registros en las apps
+            const { data: coRow } = await supabase.from('companies').select('name').eq('id', id).maybeSingle()
+            const coName = coRow?.name || ''
+
+            if (toAdd.includes('nomia')) {
+              const exists = await supabase.from('nomia_clientes').select('id').eq('nombre', coName).maybeSingle()
+              if (!exists.data) await supabase.from('nomia_clientes').insert({ nombre: coName })
+            }
+            if (toAdd.includes('climia')) {
+              const exists = await supabase.from('climia_clients').select('id').eq('name', coName).maybeSingle()
+              if (!exists.data) {
+                const code = coName.slice(0, 3).toUpperCase().replace(/\s/g, '') + '-' + Math.random().toString(36).slice(2, 6).toUpperCase()
+                await supabase.from('climia_clients').insert({ name: coName, code, surveyToken: crypto.randomUUID() })
+              }
+            }
           }
           if (toRemove.length) {
             await supabase.from('subscriptions')
