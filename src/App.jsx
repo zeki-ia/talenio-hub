@@ -1266,17 +1266,17 @@ export default function App() {
         const { data: subs } = await supabase.from('subscriptions').select('product, plan, status').eq('company_id', row.company_id)
         setSubscriptions(subs || [])
       }
-      // SSO redirect: si hay ?redirect= en la URL, mandamos al usuario de vuelta a la app con tokens
+      // SSO redirect: si hay ?redirect= en la URL, generamos magic link para la app destino
       if (redirectTarget.current) {
         const { data: { session: s } } = await supabase.auth.getSession()
-        if (s?.access_token) {
+        if (s?.user?.email) {
           try {
-            const target = new URL(redirectTarget.current)
-            target.searchParams.set('access_token', s.access_token)
-            target.searchParams.set('refresh_token', s.refresh_token)
-            window.location.href = target.toString()
-            return
-          } catch { /* URL inválida, ignorar */ }
+            const { url: loginUrl } = await adminCall('generateLoginLink', {
+              email: s.user.email,
+              redirectTo: redirectTarget.current,
+            })
+            if (loginUrl) { window.location.href = loginUrl; return }
+          } catch (e) { console.error('generateLoginLink error:', e) }
         }
       }
     } catch (e) { console.error(e) }
