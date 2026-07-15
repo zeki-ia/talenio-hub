@@ -533,13 +533,8 @@ function HubPage({ user, subscriptions, companyId, onLogout }) {
 
     // Genera magic link para SSO — Supabase lo procesa nativamente vía hash fragment
     try {
-      const resp = await fetch('/api/admin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'generateLoginLink', email: user.email, redirectTo: p.url }),
-      })
-      const { url: loginUrl, error: linkErr } = await resp.json()
-      if (linkErr || !loginUrl) { setSubError({ product: p.name, status: 'link_error' }); return }
+      const { url: loginUrl } = await adminCall('generateLoginLink', { email: user.email, redirectTo: p.url })
+      if (!loginUrl) { setSubError({ product: p.name, status: 'link_error' }); return }
       window.open(loginUrl, '_blank')
     } catch (e) {
       setSubError({ product: p.name, status: 'link_error' })
