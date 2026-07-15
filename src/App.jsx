@@ -531,13 +531,18 @@ function HubPage({ user, subscriptions, companyId, onLogout }) {
       }
     }
 
-    const { data: { session } } = await supabase.auth.getSession()
-    const base = p.url
-    if (session?.access_token) {
-      const url = `${base}?access_token=${session.access_token}&refresh_token=${session.refresh_token}`
-      window.open(url, '_blank')
-    } else {
-      window.open(base, '_blank')
+    // Genera magic link para SSO — Supabase lo procesa nativamente vía hash fragment
+    try {
+      const resp = await fetch('/api/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'generateLoginLink', email: user.email, redirectTo: p.url }),
+      })
+      const { url: loginUrl, error: linkErr } = await resp.json()
+      if (linkErr || !loginUrl) { setSubError({ product: p.name, status: 'link_error' }); return }
+      window.open(loginUrl, '_blank')
+    } catch (e) {
+      setSubError({ product: p.name, status: 'link_error' })
     }
   }
 

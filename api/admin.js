@@ -57,6 +57,19 @@ export default async function handler(req, res) {
   try {
     switch (action) {
 
+      // ── SSO: genera magic link para login en otra app ───────────────────
+      case 'generateLoginLink': {
+        const { email, redirectTo } = params
+        if (!email || !redirectTo) return res.status(400).json({ error: 'email y redirectTo requeridos' })
+        const { data, error } = await supabase.auth.admin.generateLink({
+          type: 'magiclink',
+          email: email.trim().toLowerCase(),
+          options: { redirectTo },
+        })
+        if (error) return res.status(500).json({ error: error.message })
+        return res.json({ url: data.properties.action_link })
+      }
+
       // ── Lectura de datos (bypasa RLS con service role) ────────────────────
       case 'getData': {
         const [{ data: users }, { data: companies }, { data: subs }] = await Promise.all([
