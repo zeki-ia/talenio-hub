@@ -718,6 +718,42 @@ function AdminPanel() {
   const [editUserCompany, setEditUserCompany] = useState('')
   const [editUserProds, setEditUserProds]   = useState([])
 
+  // Suscripciones Stripe
+  const [checkoutModal, setCheckoutModal]   = useState(null) // { company, product, plan, url }
+  const [subAction, setSubAction]           = useState(null) // 'activar' | 'portal'
+  const PLANS = { climia: ['Start','Growth','Scale'], promotia: ['Start','Growth','Scale'], nomia: ['Base','Growth'] }
+
+  async function generarCheckout(company, product, plan) {
+    setSaving(true)
+    try {
+      const res = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product, plan, companyName: company.name,
+          ...(company.stripe_customer_id ? { stripeCustomerId: company.stripe_customer_id } : {}),
+          successUrl: `https://hub.talenio.tech?checkout=success&product=${product}`,
+          cancelUrl: 'https://hub.talenio.tech',
+        })
+      })
+      const data = await res.json()
+      if (data.url) setCheckoutModal({ company, product, plan, url: data.url })
+      else flash(false, data.error || 'Error al generar link de Stripe')
+    } catch(e) { flash(false, e.message) }
+    setSaving(false)
+  }
+
+  async function abrirPortal(company) {
+    if (!company.stripe_customer_id) { flash(false, 'Esta empresa no tiene un cliente Stripe asignado todavía.'); return }
+    setSaving(true)
+    try {
+      const res = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'portal', stripeCustomerId: company.stripe_customer_id })
+      })
+      const data = await res.json()
+      if (data.url) window.open(data.url, '_blank')
+      else flash(false, data.error || 'Error al abrir portal de Stripe')
+    } catch(e) { flash(false, e.message) }
+    setSaving(false)
+  }
+
   useEffect(() => { loadData() }, [])
 
   async function loadData() {
@@ -856,7 +892,7 @@ function AdminPanel() {
         </div>
 
         <div style={{ display: 'flex', gap: 4, background: T.border, borderRadius: 10, padding: 3, width: 'fit-content', marginBottom: 24 }}>
-          {[['companies','Empresas'],['users','Usuarios']].map(([t, l]) => (
+          {[['companies','Empresas'],['users','Usuarios'],['subscriptions','Suscripciones']].map(([t, l]) => (
             <button key={t} onClick={() => { setTab(t); setMsg(''); setErr('') }} style={{
               padding: '7px 18px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 700,
               background: tab === t ? '#fff' : 'transparent', color: tab === t ? T.navy : T.muted,
@@ -868,6 +904,77 @@ function AdminPanel() {
         {msg && <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#166534', marginBottom: 16 }}>{msg}</div>}
         {err && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#DC2626', marginBottom: 16 }}>{err}</div>}
 
+        {/* ── Tab Suscripciones ── */}
+        {tab === 'subscriptions' && (
+          <div>
+            {loading ? <Spinner/> : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {companies.filter(c => c.is_active !== false).map(c => {
+                  const cSubs = subs.filter(s => s.company_id === c.id)
+                  return (
+                    <div key={c.id} style={{ background: T.paper, borderRadius: 14, padding: 20, border: `1px solid ${T.border}` }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: 14, color: T.navy }}>{c.name}</div>
+                          {c.stripe_customer_id && (
+                            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                              Stripe: {c.stripe_customer_id}
+                            </div>
+                          )}
+                        </div>
+                        {c.stripe_customer_id && (
+                          <button onClick={() => abrirPortal(c)} disabled={saving}
+                            style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, fontSize: 12, fontWeight: 600, color: T.ink, cursor: saving ? 'not-allowed' : 'pointer' }}>
+                            Portal Stripe ↗
+                          </button>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+                        {Object.entries(PRODUCTS).filter(([,p]) => !p.freemium).map(([key, p]) => {
+                          const sub = cSubs.find(s => s.product === key)
+                          const isActive = sub?.status === 'active'
+                          const plans = PLANS[key] || ['Start']
+
+                          return (
+                            <div key={key} style={{ padding: '12px 14px', borderRadius: 10, border: `1px solid ${isActive ? p.color + '40' : T.border}`, background: isActive ? (p.colorSoft || T.blueSoft) : T.bg }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                <span style={{ fontWeight: 700, fontSize: 13, color: p.color }}>{p.name}</span>
+                                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 5,
+                                  background: isActive ? '#DCFCE7' : '#F3F4F6', color: isActive ? '#166534' : T.muted }}>
+                                  {isActive ? (sub?.plan ? `${sub.plan} ✓` : 'Activo') : sub?.status === 'past_due' ? 'Vencido' : sub?.status === 'canceled' ? 'Cancelado' : 'Sin suscripción'}
+                                </span>
+                              </div>
+
+                              {!isActive ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                  {plans.map(plan => (
+                                    <button key={plan} onClick={() => generarCheckout(c, key, plan)} disabled={saving}
+                                      style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${p.color}40`, background: '#fff', fontSize: 11.5, fontWeight: 600, color: p.color, cursor: saving ? 'not-allowed' : 'pointer', textAlign: 'left' }}>
+                                      {saving ? 'Generando…' : `Activar plan ${plan}`}
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : (
+                                <button onClick={() => abrirPortal(c)} disabled={saving || !c.stripe_customer_id}
+                                  style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: `1px solid ${p.color}40`, background: '#fff', fontSize: 11.5, fontWeight: 600, color: p.color, cursor: (saving || !c.stripe_customer_id) ? 'not-allowed' : 'pointer' }}>
+                                  Gestionar plan ↗
+                                </button>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Tabs Empresas / Usuarios ── */}
+        {tab !== 'subscriptions' && (
         <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 24, alignItems: 'start' }}>
 
           {/* ── Formulario crear ── */}
@@ -1011,7 +1118,30 @@ function AdminPanel() {
             )}
           </div>
         </div>
+        )} {/* fin tab !== subscriptions */}
       </div>
+
+      {/* ── Modal checkout Stripe ── */}
+      {checkoutModal && (
+        <Modal title={`Link de pago — ${PRODUCTS[checkoutModal.product]?.name} ${checkoutModal.plan}`} onClose={() => setCheckoutModal(null)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <p style={{ fontSize: 13, color: T.ink, margin: 0, lineHeight: 1.6 }}>
+              Copiá este link y enviáselo a <b>{checkoutModal.company.name}</b> para que complete el pago en Stripe.
+            </p>
+            <div style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 9, padding: '10px 14px', fontSize: 12, color: T.muted, wordBreak: 'break-all', fontFamily: 'monospace' }}>
+              {checkoutModal.url}
+            </div>
+            <button onClick={() => { navigator.clipboard.writeText(checkoutModal.url); flash(true, 'Link copiado al portapapeles.'); setCheckoutModal(null) }}
+              style={{ padding: '10px', borderRadius: 9, border: 'none', background: T.blue, color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+              Copiar link
+            </button>
+            <button onClick={() => window.open(checkoutModal.url, '_blank')}
+              style={{ padding: '10px', borderRadius: 9, border: `1px solid ${T.border}`, background: T.bg, color: T.ink, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+              Abrir en Stripe ↗
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {/* ── Modal editar empresa ── */}
       {editCo && (

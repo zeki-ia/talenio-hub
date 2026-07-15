@@ -61,8 +61,8 @@ export default async function handler(req, res) {
       case 'getData': {
         const [{ data: users }, { data: companies }, { data: subs }] = await Promise.all([
           supabase.from('users').select('id, email, role, company_id, products'),
-          supabase.from('companies').select('id, name, is_active'),
-          supabase.from('subscriptions').select('company_id, product, status'),
+          supabase.from('companies').select('id, name, is_active, stripe_customer_id'),
+          supabase.from('subscriptions').select('company_id, product, status, plan, stripe_subscription_id'),
         ])
         return res.json({ users: users || [], companies: companies || [], subs: subs || [] })
       }

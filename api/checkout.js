@@ -38,9 +38,25 @@ export default async function handler(req, res) {
   if (!STRIPE_SECRET_KEY) return res.status(500).json({ error: 'STRIPE_SECRET_KEY no configurada' })
 
   const {
-    product, plan, email, companyName,
+    action, product, plan, email, companyName,
     successUrl, cancelUrl, stripeCustomerId,
   } = req.body || {}
+
+  // Billing portal para cliente existente
+  if (action === 'portal') {
+    if (!stripeCustomerId) return res.status(400).json({ error: 'stripeCustomerId requerido para portal' })
+    try {
+      const stripe = new Stripe(STRIPE_SECRET_KEY)
+      const session = await stripe.billingPortal.sessions.create({
+        customer: stripeCustomerId,
+        return_url: 'https://hub.talenio.tech',
+      })
+      return res.status(200).json({ url: session.url })
+    } catch (e) {
+      console.error('[checkout/portal]', e)
+      return res.status(500).json({ error: e.message })
+    }
+  }
 
   if (!product || !PRICE_KEYS[product]) return res.status(400).json({ error: `Producto inválido: ${product}` })
   if (!plan)   return res.status(400).json({ error: 'Plan requerido' })
