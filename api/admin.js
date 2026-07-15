@@ -154,11 +154,8 @@ export default async function handler(req, res) {
 
         // Sincronizar productos si se envían
         if (products !== undefined) {
-          // Obtener subs actuales
           const { data: currentSubs } = await supabase
-            .from('subscriptions')
-            .select('product, status')
-            .eq('company_id', id)
+            .from('subscriptions').select('product, status').eq('company_id', id)
 
           const currentActive = (currentSubs || []).filter(s => s.status === 'active').map(s => s.product)
           const toAdd    = products.filter(p => !currentActive.includes(p))
@@ -169,28 +166,28 @@ export default async function handler(req, res) {
               toAdd.map(p => ({ company_id: id, product: p, status: 'active', plan: 'base' })),
               { onConflict: 'company_id,product' }
             )
-
-            // Obtener nombre de empresa para crear registros en las apps
-            const { data: coRow } = await supabase.from('companies').select('name').eq('id', id).maybeSingle()
-            const coName = coRow?.name || ''
-
-            if (toAdd.includes('nomia')) {
-              const exists = await supabase.from('nomia_clientes').select('id').eq('nombre', coName).maybeSingle()
-              if (!exists.data) await supabase.from('nomia_clientes').insert({ nombre: coName })
-            }
-            if (toAdd.includes('climia')) {
-              const exists = await supabase.from('climia_clients').select('id').eq('name', coName).maybeSingle()
-              if (!exists.data) {
-                const code = coName.slice(0, 3).toUpperCase().replace(/\s/g, '') + '-' + Math.random().toString(36).slice(2, 6).toUpperCase()
-                await supabase.from('climia_clients').insert({ name: coName, code, surveyToken: crypto.randomUUID() })
-              }
-            }
           }
           if (toRemove.length) {
             await supabase.from('subscriptions')
               .update({ status: 'canceled', updated_at: new Date().toISOString() })
-              .eq('company_id', id)
-              .in('product', toRemove)
+              .eq('company_id', id).in('product', toRemove)
+          }
+
+          // Sincronizar registros en apps para TODOS los productos activos (idempotente)
+          const { data: coRow } = await supabase.from('companies').select('name').eq('id', id).maybeSingle()
+          const coName = coRow?.name || name?.trim() || ''
+          const activeAfter = products // los que el usuario envió son los que deben quedar activos
+
+          if (activeAfter.includes('nomia')) {
+            const { data: exists } = await supabase.from('nomia_clientes').select('id').eq('nombre', coName).maybeSingle()
+            if (!exists) await supabase.from('nomia_clientes').insert({ nombre: coName })
+          }
+          if (activeAfter.includes('climia')) {
+            const { data: exists } = await supabase.from('climia_clients').select('id').eq('name', coName).maybeSingle()
+            if (!exists) {
+              const code = coName.slice(0, 3).toUpperCase().replace(/\s/g, '') + '-' + Math.random().toString(36).slice(2, 6).toUpperCase()
+              await supabase.from('climia_clients').insert({ name: coName, code, surveyToken: crypto.randomUUID() })
+            }
           }
         }
 
