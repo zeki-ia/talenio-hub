@@ -984,36 +984,40 @@ function AdminPanel() {
                                     Revocar acceso
                                   </button>
                                 </div>
-                              ) : isActive && !c.stripe_customer_id ? (
-                                // Acceso gratuito/manual → migrar a Stripe + revocar
+                              ) : !c.stripe_customer_id ? (
+                                // Sin Stripe (sin suscripción o manual) → bonificar o activar con Stripe
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                                  <div style={{ fontSize: 10.5, color: T.muted, marginBottom: 1 }}>
-                                    {sub?.plan === 'gratis' ? '🎁 Acceso gratuito' : 'Manual — sin Stripe'}
-                                  </div>
+                                  <button onClick={() => grantFreeAccess(c, key)} disabled={saving}
+                                    style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #BBF7D0', background: '#F0FDF4', fontSize: 12, fontWeight: 700, color: '#166534', cursor: saving ? 'not-allowed' : 'pointer' }}>
+                                    {saving ? 'Guardando…' : '🎁 Bonificar acceso'}
+                                  </button>
+                                  <div style={{ fontSize: 10, color: T.muted, textAlign: 'center' }}>— o activar con Stripe —</div>
                                   {plans.map(plan => (
                                     <button key={plan} onClick={() => generarCheckout(c, key, plan)} disabled={saving}
                                       style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${p.color}40`, background: '#fff', fontSize: 11.5, fontWeight: 600, color: p.color, cursor: saving ? 'not-allowed' : 'pointer' }}>
-                                      {saving ? 'Generando…' : `Migrar a plan ${plan}`}
+                                      {saving ? 'Generando…' : isActive ? `Migrar a plan ${plan}` : `Activar plan ${plan}`}
                                     </button>
                                   ))}
-                                  <button onClick={() => revokeAccess(c, key)} disabled={saving}
-                                    style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: '1px solid #FECACA', background: '#FEF2F2', fontSize: 11.5, fontWeight: 600, color: '#DC2626', cursor: saving ? 'not-allowed' : 'pointer' }}>
-                                    Revocar acceso
-                                  </button>
+                                  {isActive && (
+                                    <button onClick={() => revokeAccess(c, key)} disabled={saving}
+                                      style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: '1px solid #FECACA', background: '#FEF2F2', fontSize: 11.5, fontWeight: 600, color: '#DC2626', cursor: saving ? 'not-allowed' : 'pointer' }}>
+                                      Revocar acceso
+                                    </button>
+                                  )}
                                 </div>
                               ) : (
-                                // Sin suscripción → activar con Stripe o bonificar
+                                // Sin suscripción activa pero tiene Stripe → activar con Stripe
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                  <button onClick={() => grantFreeAccess(c, key)} disabled={saving}
+                                    style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1px solid #BBF7D0', background: '#F0FDF4', fontSize: 12, fontWeight: 700, color: '#166534', cursor: saving ? 'not-allowed' : 'pointer' }}>
+                                    🎁 Bonificar acceso
+                                  </button>
                                   {plans.map(plan => (
                                     <button key={plan} onClick={() => generarCheckout(c, key, plan)} disabled={saving}
                                       style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${p.color}40`, background: '#fff', fontSize: 11.5, fontWeight: 600, color: p.color, cursor: saving ? 'not-allowed' : 'pointer' }}>
                                       {saving ? 'Generando…' : `Activar plan ${plan}`}
                                     </button>
                                   ))}
-                                  <button onClick={() => grantFreeAccess(c, key)} disabled={saving}
-                                    style={{ width: '100%', padding: '6px 10px', borderRadius: 7, border: '1px solid #BBF7D0', background: '#F0FDF4', fontSize: 11.5, fontWeight: 700, color: '#166534', cursor: saving ? 'not-allowed' : 'pointer' }}>
-                                    🎁 Bonificar acceso
-                                  </button>
                                 </div>
                               )}
                             </div>
