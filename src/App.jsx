@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
@@ -1105,6 +1105,9 @@ export default function App() {
   const [subscriptions, setSubscriptions] = useState([])
   const [loading, setLoading]             = useState(true)
 
+  // Leer redirect param una sola vez al montar (persiste aunque cambie la URL)
+  const redirectTarget = useRef(new URLSearchParams(window.location.search).get('redirect'))
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
@@ -1127,6 +1130,19 @@ export default function App() {
       if (row?.company_id) {
         const { data: subs } = await supabase.from('subscriptions').select('product, plan, status').eq('company_id', row.company_id)
         setSubscriptions(subs || [])
+      }
+      // SSO redirect: si hay ?redirect= en la URL, mandamos al usuario de vuelta a la app con tokens
+      if (redirectTarget.current) {
+        const { data: { session: s } } = await supabase.auth.getSession()
+        if (s?.access_token) {
+          try {
+            const target = new URL(redirectTarget.current)
+            target.searchParams.set('access_token', s.access_token)
+            target.searchParams.set('refresh_token', s.refresh_token)
+            window.location.href = target.toString()
+            return
+          } catch { /* URL inválida, ignorar */ }
+        }
       }
     } catch (e) { console.error(e) }
     setLoading(false)
