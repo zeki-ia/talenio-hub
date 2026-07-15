@@ -28,20 +28,29 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end()
   if (req.method !== 'POST') return res.status(405).end()
 
-  // Validar que el caller es admin (verificar JWT con service role)
   const auth = req.headers.authorization?.replace('Bearer ', '')
   if (!auth) return res.status(401).json({ error: 'No autorizado' })
 
   let supabase
   try { supabase = adminClient() } catch (e) { return res.status(500).json({ error: e.message }) }
 
-  // Verificar que el JWT pertenece a un usuario admin
-  const { data: { user }, error: authErr } = await supabase.auth.getUser(auth)
-  if (authErr || !user) return res.status(401).json({ error: 'Token inválido' })
+  // Decodificar JWT localmente para obtener user_id y email sin roundtrip
+  let userId, userEmail
+  try {
+    const payload = JSON.parse(Buffer.from(auth.split('.')[1], 'base64').toString())
+    userId    = payload.sub
+    userEmail = payload.email
+    if (!userId) throw new Error('no sub')
+  } catch {
+    return res.status(401).json({ error: 'Token inválido' })
+  }
 
-  const { data: userRow } = await supabase.from('users').select('role').eq('id', user.id).maybeSingle()
-  const isAdmin = userRow?.role === 'admin' || user.email?.endsWith('@delenio.net')
-  if (!isAdmin) return res.status(403).json({ error: 'Sin permisos de administrador' })
+  // Verificar que es admin (email @delenio.net O role=admin en DB)
+  const isAdminEmail = userEmail?.endsWith('@delenio.net')
+  if (!isAdminEmail) {
+    const { data: userRow } = await supabase.from('users').select('role').eq('id', userId).maybeSingle()
+    if (userRow?.role !== 'admin') return res.status(403).json({ error: 'Sin permisos de administrador' })
+  }
 
   const { action, ...params } = req.body || {}
 
@@ -143,33 +152,58 @@ export default async function handler(req, res) {
       // ── Usuarios ─────────────────────────────────────────────────────────
 
       case 'createUser': {
-        const { email, name, role = 'client', company_id, products = [] } = params
+        const { email, name, role = 'client', company_id, products = [], password } = params
         if (!email?.trim()) return res.status(400).json({ error: 'Email requerido' })
 
         const emailLower = email.trim().toLowerCase()
 
-        // Invitar usuario (crea cuenta + envía email para setear contraseña)
-        const { data: invited, error: inviteErr } = await supabase.auth.admin.inviteUserByEmail(emailLower, {
-          data: { full_name: name },
-          redirectTo: 'https://hub.talenio.tech',
-        })
-
-        let userId = invited?.user?.id
-        if (inviteErr) {
-          // El usuario ya existe en Auth — buscarlo
-          const { data: list } = await supabase.auth.admin.listUsers({ perPage: 1000 })
-          const found = list?.users?.find(u => u.email?.toLowerCase() === emailLower)
-          if (!found) return res.status(400).json({ error: inviteErr.message })
-          userId = found.id
+        let userId
+        if (password) {
+          // Crear con contraseña directa (sin email de invitación)
+          const { data: created, error: createErr } = await supabase.auth.admin.createUser({
+            email: emailLower, password, email_confirm: true,
+            user_metadata: { full_name: name },
+          })
+          if (createErr) {
+            // Si ya existe, buscarlo
+            const { data: list } = await supabase.auth.admin.listUsers({ perPage: 1000 })
+            const found = list?.users?.find(u => u.email?.toLowerCase() === emailLower)
+            if (!found) return res.status(400).json({ error: createErr.message })
+            userId = found.id
+            // Actualizar contraseña del existente
+            await supabase.auth.admin.updateUserById(userId, { password })
+          } else {
+            userId = created?.user?.id
+          }
+        } else {
+          // Invitar (crea cuenta + envía email para setear contraseña)
+          const { data: invited, error: inviteErr } = await supabase.auth.admin.inviteUserByEmail(emailLower, {
+            data: { full_name: name },
+            redirectTo: 'https://hub.talenio.tech',
+          })
+          userId = invited?.user?.id
+          if (inviteErr) {
+            const { data: list } = await supabase.auth.admin.listUsers({ perPage: 1000 })
+            const found = list?.users?.find(u => u.email?.toLowerCase() === emailLower)
+            if (!found) return res.status(400).json({ error: inviteErr.message })
+            userId = found.id
+          }
         }
 
-        // Tabla core — guarda products[] para controlar acceso por usuario
+        // Tabla core
         await supabase.from('users').upsert(
           { id: userId, email: emailLower, role, company_id: company_id || null, products },
           { onConflict: 'id' }
         )
 
-        // Perfiles en apps según productos seleccionados para este usuario
+        // Obtener nombre de empresa para lookup de apps
+        let companyName = null
+        if (company_id) {
+          const { data: co } = await supabase.from('companies').select('name').eq('id', company_id).maybeSingle()
+          companyName = co?.name
+        }
+
+        // Perfiles en apps según productos seleccionados
         if (products.includes('climia')) {
           await supabase.from('climia_profiles').upsert({
             id: userId, email: emailLower, name: name || emailLower,
@@ -177,14 +211,40 @@ export default async function handler(req, res) {
           }, { onConflict: 'id' })
         }
         if (products.includes('nomia')) {
+          // Buscar el cliente Nomia que corresponde a la empresa
+          let nomiaClienteId = null
+          if (companyName) {
+            const { data: nc } = await supabase.from('nomia_clientes').select('id').eq('nombre', companyName).maybeSingle()
+            nomiaClienteId = nc?.id || null
+          }
           await supabase.from('nomia_perfiles').upsert({
             id: userId, email: emailLower, nombre: name || emailLower,
-            rol: role === 'admin' ? 'admin' : 'cliente', cliente_id: null,
+            rol: role === 'admin' ? 'admin' : 'cliente',
+            cliente_id: role === 'admin' ? null : nomiaClienteId,
           }, { onConflict: 'id' })
         }
-        // PromotIA usa users.products directamente — no necesita tabla de perfiles separada
 
         return res.json({ ok: true, userId })
+      }
+
+      case 'setPassword': {
+        const { id, password: newPass } = params
+        if (!id || !newPass) return res.status(400).json({ error: 'id y password requeridos' })
+        const { error } = await supabase.auth.admin.updateUserById(id, { password: newPass })
+        if (error) return res.status(400).json({ error: error.message })
+        return res.json({ ok: true })
+      }
+
+      case 'sendPasswordReset': {
+        const { email: resetEmail } = params
+        if (!resetEmail) return res.status(400).json({ error: 'email requerido' })
+        const { error } = await supabase.auth.admin.generateLink({
+          type: 'recovery',
+          email: resetEmail.trim().toLowerCase(),
+          options: { redirectTo: 'https://hub.talenio.tech' },
+        })
+        if (error) return res.status(400).json({ error: error.message })
+        return res.json({ ok: true })
       }
 
       case 'updateUser': {
@@ -202,9 +262,16 @@ export default async function handler(req, res) {
 
         // Sincronizar perfiles en apps si cambió products
         if (products !== undefined) {
-          // Obtener nombre/email del usuario para los perfiles
-          const { data: uRow } = await supabase.from('users').select('email').eq('id', id).maybeSingle()
+          const { data: uRow } = await supabase.from('users').select('email, company_id').eq('id', id).maybeSingle()
           const emailLower = uRow?.email || ''
+          const effectiveCompanyId = company_id !== undefined ? (company_id || null) : (uRow?.company_id || null)
+
+          // Buscar nombre empresa y cliente Nomia
+          let companyName = null
+          if (effectiveCompanyId) {
+            const { data: co } = await supabase.from('companies').select('name').eq('id', effectiveCompanyId).maybeSingle()
+            companyName = co?.name
+          }
 
           if (products.includes('climia')) {
             await supabase.from('climia_profiles').upsert({
@@ -212,13 +279,18 @@ export default async function handler(req, res) {
               role: role === 'admin' ? 'admin' : 'cliente', client_id: null, status: 'Activo',
             }, { onConflict: 'id' })
           } else {
-            // Suspender acceso en Climia si se removió el producto
             await supabase.from('climia_profiles').update({ status: 'Suspendido' }).eq('id', id)
           }
           if (products.includes('nomia')) {
+            let nomiaClienteId = null
+            if (companyName) {
+              const { data: nc } = await supabase.from('nomia_clientes').select('id').eq('nombre', companyName).maybeSingle()
+              nomiaClienteId = nc?.id || null
+            }
             await supabase.from('nomia_perfiles').upsert({
               id, email: emailLower, nombre: emailLower,
-              rol: role === 'admin' ? 'admin' : 'cliente', cliente_id: null,
+              rol: role === 'admin' ? 'admin' : 'cliente',
+              cliente_id: role === 'admin' ? null : nomiaClienteId,
             }, { onConflict: 'id' })
           }
         }

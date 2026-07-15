@@ -196,6 +196,7 @@ function LoginPage() {
   const [info, setInfo]         = useState('')
   const [loading, setLoading]   = useState(false)
   const [showPass, setShowPass] = useState(false)
+  const [forgotMode, setForgotMode] = useState(false)
 
   async function handleSubmit(e) {
     e.preventDefault(); setError(''); setLoading(true)
@@ -226,6 +227,16 @@ function LoginPage() {
       options: { redirectTo: window.location.origin },
     })
     if (error) setError(error.message)
+  }
+
+  async function handleForgot(e) {
+    e.preventDefault(); setError(''); setLoading(true)
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+      redirectTo: window.location.origin,
+    })
+    if (error) setError(error.message)
+    else { setInfo('Te enviamos un email para restablecer tu contraseña.'); setForgotMode(false) }
+    setLoading(false)
   }
 
   const inputStyle = {
@@ -303,68 +314,90 @@ function LoginPage() {
             ))}
           </div>
 
-          {/* Google */}
-          <button type="button" onClick={handleGoogle} style={{
-            width: '100%', padding: '11px 0', borderRadius: 10, border: `1px solid ${T.border}`,
-            background: '#fff', color: T.navy, fontSize: 14, fontWeight: 600,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-            cursor: 'pointer', marginBottom: 18,
-          }}>
-            <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.08 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-3.59-13.46-8.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
-            Continuar con Google
-          </button>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div style={{ flex: 1, height: 1, background: T.border }}/>
-            <span style={{ fontSize: 12, color: T.muted, fontWeight: 600 }}>o con email</span>
-            <div style={{ flex: 1, height: 1, background: T.border }}/>
-          </div>
-
-          {info && (
-            <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '10px 13px', fontSize: 13, color: '#166534', marginBottom: 14 }}>
-              {info}
-            </div>
-          )}
-          {error && (
-            <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '9px 13px', fontSize: 13, color: '#DC2626', marginBottom: 14 }}>
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={tab === 'login' ? handleSubmit : handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {tab === 'register' && (
+          {/* Modo recuperar contraseña */}
+          {forgotMode && (
+            <form onSubmit={handleForgot} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <p style={{ fontSize: 13, color: T.inkSoft, marginBottom: 4 }}>
+                Ingresá tu email y te enviamos un enlace para restablecer tu contraseña.
+              </p>
+              {error && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '9px 13px', fontSize: 13, color: '#DC2626' }}>{error}</div>}
+              {info && <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '10px 13px', fontSize: 13, color: '#166534' }}>{info}</div>}
               <div>
-                <label style={label}>Nombre completo</label>
-                <input type="text" value={name} onChange={e => setName(e.target.value)} required placeholder="Juan Pérez" style={inputStyle}/>
+                <label style={label}>Email</label>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="tu@empresa.com" style={inputStyle}/>
               </div>
-            )}
-            <div>
-              <label style={label}>Email</label>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="tu@empresa.com" style={inputStyle}/>
-            </div>
-            <div>
-              <label style={label}>Contraseña</label>
-              <div style={{ position: 'relative' }}>
-                <input type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} required
-                  placeholder="••••••••" style={{ ...inputStyle, paddingRight: 42 }}/>
-                <button type="button" onClick={() => setShowPass(v => !v)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: T.muted, padding: 2, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
-                  {showPass
-                    ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                    : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  }
-                </button>
-              </div>
-            </div>
-            <button type="submit" disabled={loading} style={{
-              width: '100%', padding: '12px 0', borderRadius: 10, border: 'none',
-              background: loading ? T.border : '#13B0AC', color: '#fff', fontSize: 15, fontWeight: 700,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              transition: 'all .15s', marginTop: 4, cursor: loading ? 'not-allowed' : 'pointer',
+              <button type="submit" disabled={loading} style={{ width: '100%', padding: '12px 0', borderRadius: 10, border: 'none', background: '#13B0AC', color: '#fff', fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: loading ? 'not-allowed' : 'pointer' }}>
+                {loading && <Spinner color="#fff" size={13}/>}
+                {loading ? 'Enviando…' : 'Enviar enlace'}
+              </button>
+              <button type="button" onClick={() => { setForgotMode(false); setError('') }} style={{ background: 'none', border: 'none', color: T.muted, fontSize: 13, cursor: 'pointer' }}>
+                ← Volver al login
+              </button>
+            </form>
+          )}
+
+          {/* Google + formulario login/registro */}
+          {!forgotMode && (<>
+            <button type="button" onClick={handleGoogle} style={{
+              width: '100%', padding: '11px 0', borderRadius: 10, border: `1px solid ${T.border}`,
+              background: '#fff', color: T.navy, fontSize: 14, fontWeight: 600,
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+              cursor: 'pointer', marginBottom: 18,
             }}>
-              {loading && <Spinner color="#fff" size={13}/>}
-              {loading ? (tab === 'login' ? 'Ingresando…' : 'Creando cuenta…') : (tab === 'login' ? 'Ingresar' : 'Crear cuenta')}
+              <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.08 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-3.59-13.46-8.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+              Continuar con Google
             </button>
-          </form>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <div style={{ flex: 1, height: 1, background: T.border }}/>
+              <span style={{ fontSize: 12, color: T.muted, fontWeight: 600 }}>o con email</span>
+              <div style={{ flex: 1, height: 1, background: T.border }}/>
+            </div>
+
+            {info && <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '10px 13px', fontSize: 13, color: '#166534', marginBottom: 14 }}>{info}</div>}
+            {error && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '9px 13px', fontSize: 13, color: '#DC2626', marginBottom: 14 }}>{error}</div>}
+
+            <form onSubmit={tab === 'login' ? handleSubmit : handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {tab === 'register' && (
+                <div>
+                  <label style={label}>Nombre completo</label>
+                  <input type="text" value={name} onChange={e => setName(e.target.value)} required placeholder="Juan Pérez" style={inputStyle}/>
+                </div>
+              )}
+              <div>
+                <label style={label}>Email</label>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="tu@empresa.com" style={inputStyle}/>
+              </div>
+              <div>
+                <label style={label}>Contraseña</label>
+                <div style={{ position: 'relative' }}>
+                  <input type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} required
+                    placeholder="••••••••" style={{ ...inputStyle, paddingRight: 42 }}/>
+                  <button type="button" onClick={() => setShowPass(v => !v)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: T.muted, padding: 2, cursor: 'pointer', display: 'grid', placeItems: 'center' }}>
+                    {showPass
+                      ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    }
+                  </button>
+                </div>
+              </div>
+              <button type="submit" disabled={loading} style={{
+                width: '100%', padding: '12px 0', borderRadius: 10, border: 'none',
+                background: loading ? T.border : '#13B0AC', color: '#fff', fontSize: 15, fontWeight: 700,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                transition: 'all .15s', marginTop: 4, cursor: loading ? 'not-allowed' : 'pointer',
+              }}>
+                {loading && <Spinner color="#fff" size={13}/>}
+                {loading ? (tab === 'login' ? 'Ingresando…' : 'Creando cuenta…') : (tab === 'login' ? 'Ingresar' : 'Crear cuenta')}
+              </button>
+            </form>
+
+            {tab === 'login' && (
+              <button type="button" onClick={() => { setForgotMode(true); setError(''); setInfo('') }} style={{ background: 'none', border: 'none', color: T.muted, fontSize: 12.5, cursor: 'pointer', marginTop: 12, padding: 0 }}>
+                ¿Olvidaste tu contraseña?
+              </button>
+            )}
+          </>)}
 
           <p style={{ marginTop: 18, fontSize: 12, color: T.muted }}>
             ¿Problemas? <a href="mailto:hola@delenio.net" style={{ color: '#13B0AC', fontWeight: 700 }}>hola@delenio.net</a>
@@ -667,6 +700,7 @@ function AdminPanel() {
   const [uRole, setURole]         = useState('client')
   const [uCompany, setUCompany]   = useState('')
   const [uProducts, setUProducts] = useState([])
+  const [uPassword, setUPassword] = useState('')
 
   // Crear empresa
   const [cName, setCName]         = useState('')
@@ -711,9 +745,9 @@ function AdminPanel() {
   async function createUser(e) {
     e.preventDefault(); setSaving(true)
     try {
-      await adminCall('createUser', { email: uEmail, name: uName, role: uRole, company_id: uCompany || null, products: uProducts })
-      flash(true, `Usuario ${uEmail} creado. Recibirá un email de invitación.`)
-      setUEmail(''); setUName(''); setURole('client'); setUCompany(''); setUProducts([])
+      await adminCall('createUser', { email: uEmail, name: uName, role: uRole, company_id: uCompany || null, products: uProducts, password: uPassword || undefined })
+      flash(true, uPassword ? `Usuario ${uEmail} creado con contraseña.` : `Usuario ${uEmail} creado. Recibirá un email de invitación.`)
+      setUEmail(''); setUName(''); setURole('client'); setUCompany(''); setUProducts([]); setUPassword('')
       loadData()
     } catch(e) { flash(false, e.message) }
     setSaving(false)
@@ -788,6 +822,15 @@ function AdminPanel() {
     setSaving(false)
   }
 
+  async function sendPasswordReset(u) {
+    setSaving(true)
+    try {
+      await adminCall('sendPasswordReset', { email: u.email })
+      flash(true, `Email de recuperación enviado a ${u.email}.`)
+    } catch(e) { flash(false, e.message) }
+    setSaving(false)
+  }
+
   const StatusBadge = ({ active }) => (
     <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 5,
       background: active ? '#DCFCE7' : '#FEF2F2', color: active ? '#166534' : '#DC2626' }}>
@@ -855,6 +898,10 @@ function AdminPanel() {
               <form onSubmit={createUser} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div><label style={lbl}>Nombre completo</label><input style={inp} value={uName} onChange={e => setUName(e.target.value)} placeholder="Juan Pérez"/></div>
                 <div><label style={lbl}>Email</label><input style={inp} type="email" required value={uEmail} onChange={e => setUEmail(e.target.value)} placeholder="usuario@empresa.com"/></div>
+                <div>
+                  <label style={lbl}>Contraseña <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 10 }}>(opcional — si no se ingresa, se envía invitación por email)</span></label>
+                  <input style={inp} type="password" value={uPassword} onChange={e => setUPassword(e.target.value)} placeholder="Mínimo 8 caracteres" autoComplete="new-password"/>
+                </div>
                 <div>
                   <label style={lbl}>Rol</label>
                   <select style={inp} value={uRole} onChange={e => setURole(e.target.value)}>
@@ -954,6 +1001,7 @@ function AdminPanel() {
                       </div>
                       <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
                         <IconBtn label="Editar" color={T.blue} onClick={() => openEditUser(u)}/>
+                        <IconBtn label="Reset pwd" color={T.inkSoft} onClick={() => sendPasswordReset(u)}/>
                         <IconBtn label={suspended ? 'Reactivar' : 'Suspender'} color={suspended ? '#166534' : '#DC2626'} onClick={() => toggleSuspendUser(u)}/>
                       </div>
                     </div>
