@@ -54,6 +54,20 @@ export default async function handler(req, res) {
 
   const { action, ...params } = req.body || {}
 
+  // Helper compartido: busca o crea registro de cliente en la tabla de la app
+  async function findOrCreateAppClient(table, nameField, compName) {
+    const { data: found } = await supabase.from(table).select('id').ilike(nameField, compName.trim()).maybeSingle()
+    if (found) return found.id
+    const extra = table === 'climia_clients'
+      ? { code: compName.slice(0,3).toUpperCase()+'-'+Math.random().toString(36).slice(2,5).toUpperCase(), survey_token: crypto.randomUUID() }
+      : {}
+    const { data: created } = await supabase.from(table).insert({ [nameField]: compName, ...extra }).select('id').single()
+    if (created?.id && table === 'nomia_clientes') {
+      await supabase.from('nomia_configuracion').insert({ cliente_id: created.id, parametros: {}, macro: {}, bonos: [] })
+    }
+    return created?.id || null
+  }
+
   try {
     switch (action) {
 
@@ -300,37 +314,27 @@ export default async function handler(req, res) {
         }
 
         // Perfiles en apps según productos seleccionados
+        const isAdmin = role === 'admin'
         if (products.includes('climia')) {
+          let clientId = null
+          if (!isAdmin && companyName) clientId = await findOrCreateAppClient('climia_clients', 'name', companyName)
           await supabase.from('climia_profiles').upsert({
             id: userId, email: emailLower, name: name || emailLower,
-            role: role === 'admin' ? 'admin' : 'cliente', client_id: null, status: 'Activo',
+            role: isAdmin ? 'admin' : 'cliente', client_id: isAdmin ? null : clientId, status: 'Activo',
           }, { onConflict: 'id' })
         }
         if (products.includes('nomia')) {
-          let nomiaClienteId = null
-          if (role !== 'admin' && companyName) {
-            // Buscar por nombre exacto
-            const { data: nc } = await supabase.from('nomia_clientes').select('id').eq('nombre', companyName).maybeSingle()
-            nomiaClienteId = nc?.id || null
-            // Si no encontró, buscar con ilike (por si hay diferencias de mayúsculas/espacios)
-            if (!nomiaClienteId) {
-              const { data: nc2 } = await supabase.from('nomia_clientes').select('id').ilike('nombre', companyName.trim()).maybeSingle()
-              nomiaClienteId = nc2?.id || null
-            }
-            // Si sigue sin encontrar, crear el cliente automáticamente
-            if (!nomiaClienteId) {
-              const { data: newNc } = await supabase.from('nomia_clientes').insert({ nombre: companyName }).select('id').single()
-              nomiaClienteId = newNc?.id || null
-              if (nomiaClienteId) {
-                await supabase.from('nomia_configuracion').insert({ cliente_id: nomiaClienteId, parametros: {}, macro: {}, bonos: [] })
-              }
-            }
-          }
+          let clienteId = null
+          if (!isAdmin && companyName) clienteId = await findOrCreateAppClient('nomia_clientes', 'nombre', companyName)
           await supabase.from('nomia_perfiles').upsert({
             id: userId, email: emailLower, nombre: name || emailLower,
-            rol: role === 'admin' ? 'admin' : 'cliente',
-            cliente_id: role === 'admin' ? null : nomiaClienteId,
+            rol: isAdmin ? 'admin' : 'cliente', cliente_id: isAdmin ? null : clienteId,
           }, { onConflict: 'id' })
+        }
+        if (products.includes('promotia')) {
+          // PromotIA usa client_code en users — actualizar la fila ya existente
+          const clientCode = companyName ? companyName.slice(0,6).toUpperCase().replace(/\s/g,'') : null
+          await supabase.from('users').update({ client_code: isAdmin ? null : clientCode }).eq('id', userId)
         }
 
         return res.json({ ok: true, userId })
@@ -382,25 +386,30 @@ export default async function handler(req, res) {
             companyName = co?.name
           }
 
+          const isAdminRole = role === 'admin'
+
           if (products.includes('climia')) {
+            let climiaClientId = null
+            if (!isAdminRole && companyName) climiaClientId = await findOrCreateAppClient('climia_clients', 'name', companyName)
             await supabase.from('climia_profiles').upsert({
               id, email: emailLower, name: emailLower,
-              role: role === 'admin' ? 'admin' : 'cliente', client_id: null, status: 'Activo',
+              role: isAdminRole ? 'admin' : 'cliente', client_id: isAdminRole ? null : climiaClientId, status: 'Activo',
             }, { onConflict: 'id' })
           } else {
             await supabase.from('climia_profiles').update({ status: 'Suspendido' }).eq('id', id)
           }
           if (products.includes('nomia')) {
             let nomiaClienteId = null
-            if (companyName) {
-              const { data: nc } = await supabase.from('nomia_clientes').select('id').eq('nombre', companyName).maybeSingle()
-              nomiaClienteId = nc?.id || null
-            }
+            if (!isAdminRole && companyName) nomiaClienteId = await findOrCreateAppClient('nomia_clientes', 'nombre', companyName)
             await supabase.from('nomia_perfiles').upsert({
               id, email: emailLower, nombre: emailLower,
-              rol: role === 'admin' ? 'admin' : 'cliente',
-              cliente_id: role === 'admin' ? null : nomiaClienteId,
+              rol: isAdminRole ? 'admin' : 'cliente',
+              cliente_id: isAdminRole ? null : nomiaClienteId,
             }, { onConflict: 'id' })
+          }
+          if (products.includes('promotia')) {
+            const clientCode = companyName ? companyName.slice(0,6).toUpperCase().replace(/\s/g,'') : null
+            await supabase.from('users').update({ client_code: isAdminRole ? null : clientCode }).eq('id', id)
           }
         }
 
