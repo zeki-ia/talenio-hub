@@ -307,11 +307,24 @@ export default async function handler(req, res) {
           }, { onConflict: 'id' })
         }
         if (products.includes('nomia')) {
-          // Buscar el cliente Nomia que corresponde a la empresa
           let nomiaClienteId = null
-          if (companyName) {
+          if (role !== 'admin' && companyName) {
+            // Buscar por nombre exacto
             const { data: nc } = await supabase.from('nomia_clientes').select('id').eq('nombre', companyName).maybeSingle()
             nomiaClienteId = nc?.id || null
+            // Si no encontró, buscar con ilike (por si hay diferencias de mayúsculas/espacios)
+            if (!nomiaClienteId) {
+              const { data: nc2 } = await supabase.from('nomia_clientes').select('id').ilike('nombre', companyName.trim()).maybeSingle()
+              nomiaClienteId = nc2?.id || null
+            }
+            // Si sigue sin encontrar, crear el cliente automáticamente
+            if (!nomiaClienteId) {
+              const { data: newNc } = await supabase.from('nomia_clientes').insert({ nombre: companyName }).select('id').single()
+              nomiaClienteId = newNc?.id || null
+              if (nomiaClienteId) {
+                await supabase.from('nomia_configuracion').insert({ cliente_id: nomiaClienteId, parametros: {}, macro: {}, bonos: [] })
+              }
+            }
           }
           await supabase.from('nomia_perfiles').upsert({
             id: userId, email: emailLower, nombre: name || emailLower,
