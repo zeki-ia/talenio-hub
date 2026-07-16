@@ -690,6 +690,15 @@ function AdminPanel() {
   const [climiaClients, setClimiaClients] = useState([])
   const [nomiaPerfiles, setNomiaPerfiles] = useState([])
   const [climiaProfiles, setClimiaProfiles] = useState([])
+  const [metrics, setMetrics]     = useState(null)
+  const [metricsLoading, setMetricsLoading] = useState(false)
+  const [revenue, setRevenue]     = useState(null)
+  const [revLoading, setRevLoading] = useState(false)
+  // costs config per product (monthly, same currency as Stripe prices / 100)
+  const [costs, setCosts]         = useState(() => {
+    try { return JSON.parse(localStorage.getItem('hub_costs') || '{}') } catch { return {} }
+  })
+  const [crossSellModal, setCrossSellModal] = useState(null) // { company, suggestion, loading }
   const [loading, setLoading]     = useState(false)
   const [saving, setSaving]       = useState(false)
   const [msg, setMsg]             = useState('')
@@ -783,6 +792,45 @@ function AdminPanel() {
   }
 
   useEffect(() => { loadData() }, [])
+  useEffect(() => { if (tab === 'dashboard') { loadMetrics(); loadRevenue() } }, [tab])
+
+  async function loadMetrics() {
+    setMetricsLoading(true)
+    try {
+      const data = await adminCall('getMetrics')
+      setMetrics(data)
+    } catch(e) {
+      setErr(e.message)
+    }
+    setMetricsLoading(false)
+  }
+
+  async function loadRevenue() {
+    setRevLoading(true)
+    try {
+      const data = await adminCall('getRevenue')
+      setRevenue(data)
+    } catch(e) {
+      setErr(e.message)
+    }
+    setRevLoading(false)
+  }
+
+  async function triggerCrossSell(company) {
+    const activeProducts = companyProducts(company.id)
+    setCrossSellModal({ company, suggestion: null, loading: true })
+    try {
+      const data = await adminCall('crossSell', { companyName: company.name, activeProducts })
+      setCrossSellModal({ company, suggestion: data.suggestion, missingProducts: data.missingProducts, loading: false })
+    } catch(e) {
+      setCrossSellModal({ company, suggestion: 'Error al generar sugerencia: ' + e.message, loading: false })
+    }
+  }
+
+  function saveCosts(updated) {
+    setCosts(updated)
+    localStorage.setItem('hub_costs', JSON.stringify(updated))
+  }
 
   async function loadData() {
     setLoading(true)
@@ -946,7 +994,7 @@ function AdminPanel() {
         </div>
 
         <div style={{ display: 'flex', gap: 4, background: T.border, borderRadius: 10, padding: 3, width: 'fit-content', marginBottom: 24 }}>
-          {[['companies','Empresas'],['users','Usuarios'],['subscriptions','Suscripciones']].map(([t, l]) => (
+          {[['dashboard','Dashboard'],['companies','Empresas'],['users','Usuarios'],['subscriptions','Suscripciones']].map(([t, l]) => (
             <button key={t} onClick={() => { setTab(t); setMsg(''); setErr('') }} style={{
               padding: '7px 18px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 700,
               background: tab === t ? '#fff' : 'transparent', color: tab === t ? T.navy : T.muted,
@@ -957,6 +1005,111 @@ function AdminPanel() {
 
         {msg && <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#166534', marginBottom: 16 }}>{msg}</div>}
         {err && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#DC2626', marginBottom: 16 }}>{err}</div>}
+
+        {/* ── Tab Dashboard ── */}
+        {tab === 'dashboard' && (
+          <div>
+            {metricsLoading || !metrics ? <Spinner/> : (() => {
+              const { global: g, subs: subsProd, nomia, climia, promotia } = metrics
+              const MetCard = ({ label, value, sub, color }) => (
+                <div style={{ background: T.paper, borderRadius: 14, border: `1px solid ${T.border}`, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
+                  <div style={{ fontSize: 32, fontWeight: 800, color: color || T.navy, lineHeight: 1 }}>{value ?? '—'}</div>
+                  {sub && <div style={{ fontSize: 12, color: T.muted }}>{sub}</div>}
+                </div>
+              )
+              const Section = ({ title, color, children }) => (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: color || T.muted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>{title}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))', gap: 12 }}>{children}</div>
+                </div>
+              )
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+                  <Section title="Global">
+                    <MetCard label="Empresas activas" value={g.activeCompanies} sub={`${g.totalCompanies} total`}/>
+                    <MetCard label="Usuarios" value={g.totalUsers}/>
+                    <MetCard label="Nuevas empresas" value={g.newCompanies} sub="últimos 30 días" color={T.blue}/>
+                    <MetCard label="Nuevos usuarios" value={g.newUsers} sub="últimos 30 días" color={T.blue}/>
+                  </Section>
+
+                  <Section title="Nomia" color={PRODUCTS.nomia.color}>
+                    <MetCard label="Clientes" value={nomia.clientes} sub={`${subsProd.nomia || 0} suscripciones activas`}/>
+                    <MetCard label="Empleados" value={nomia.empleados}/>
+                    <MetCard label="Escenarios" value={nomia.escenarios}/>
+                  </Section>
+
+                  <Section title="Climia" color={PRODUCTS.climia.color}>
+                    <MetCard label="Clientes" value={climia.clients} sub={`${subsProd.climia || 0} suscripciones activas`}/>
+                    <MetCard label="Usuarios activos" value={climia.profiles}/>
+                  </Section>
+
+                  <Section title="PromotIA" color={PRODUCTS.promotia.color}>
+                    <MetCard label="Respuestas NPS" value={promotia.surveyResponses} sub={`${subsProd.promotia || 0} suscripciones activas`}/>
+                  </Section>
+
+                  {/* ── Rentabilidad ── */}
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>Rentabilidad</div>
+                    {revLoading ? <Spinner/> : revenue ? (() => {
+                      const PRODS = ['nomia', 'climia', 'promotia']
+                      const totalMRR = PRODS.reduce((s, p) => s + (revenue.mrrByProduct[p] || 0), 0)
+                      const totalCost = PRODS.reduce((s, p) => s + (costs[p] || 0) * 100, 0)
+                      const margin = totalMRR - totalCost
+                      const fmt = (cents) => `$${(cents / 100).toLocaleString('es-AR', { minimumFractionDigits: 0 })}`
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))', gap: 12 }}>
+                            <div style={{ background: T.paper, borderRadius: 14, border: `1px solid ${T.border}`, padding: '20px 24px' }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>MRR Total</div>
+                              <div style={{ fontSize: 28, fontWeight: 800, color: '#166534' }}>{fmt(totalMRR)}</div>
+                            </div>
+                            <div style={{ background: T.paper, borderRadius: 14, border: `1px solid ${T.border}`, padding: '20px 24px' }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Costos Mensuales</div>
+                              <div style={{ fontSize: 28, fontWeight: 800, color: '#DC2626' }}>{fmt(totalCost)}</div>
+                            </div>
+                            <div style={{ background: margin >= 0 ? '#F0FDF4' : '#FEF2F2', borderRadius: 14, border: `1px solid ${margin >= 0 ? '#BBF7D0' : '#FECACA'}`, padding: '20px 24px' }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Margen</div>
+                              <div style={{ fontSize: 28, fontWeight: 800, color: margin >= 0 ? '#166534' : '#DC2626' }}>{fmt(margin)}</div>
+                            </div>
+                          </div>
+                          <div style={{ background: T.paper, borderRadius: 14, border: `1px solid ${T.border}`, padding: '16px 20px' }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 12 }}>Costos por producto (mensual)</div>
+                            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                              {PRODS.map(p => (
+                                <div key={p} style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 130 }}>
+                                  <label style={{ fontSize: 11, fontWeight: 700, color: PRODUCTS[p]?.color || T.muted, textTransform: 'uppercase' }}>{p}</label>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <span style={{ fontSize: 13, color: T.muted }}>$</span>
+                                    <input type="number" min="0" value={costs[p] || ''} placeholder="0"
+                                      onChange={e => saveCosts({ ...costs, [p]: Number(e.target.value) })}
+                                      style={{ width: 90, padding: '6px 8px', borderRadius: 7, border: `1px solid ${T.border}`, fontSize: 13, color: T.ink, background: T.bg }}/>
+                                  </div>
+                                  <div style={{ fontSize: 11, color: T.muted }}>MRR: {fmt(revenue.mrrByProduct[p] || 0)}</div>
+                                </div>
+                              ))}
+                            </div>
+                            <div style={{ fontSize: 11, color: T.muted, marginTop: 10 }}>Los costos se guardan localmente en este navegador.</div>
+                          </div>
+                        </div>
+                      )
+                    })() : (
+                      <button onClick={loadRevenue} style={{ padding: '8px 16px', borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, color: T.muted, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                        Cargar datos de Stripe
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                    <button onClick={() => { loadMetrics(); loadRevenue() }} style={{ padding: '8px 16px', borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, color: T.muted, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                      Actualizar métricas
+                    </button>
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+        )}
 
         {/* ── Tab Suscripciones ── */}
         {tab === 'subscriptions' && (
@@ -1061,7 +1214,7 @@ function AdminPanel() {
         )}
 
         {/* ── Tabs Empresas / Usuarios ── */}
-        {tab !== 'subscriptions' && (
+        {tab !== 'subscriptions' && tab !== 'dashboard' && (
         <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 24, alignItems: 'start' }}>
 
           {/* ── Formulario crear ── */}
@@ -1191,6 +1344,9 @@ function AdminPanel() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                        {prods.length > 0 && prods.length < 3 && (
+                          <IconBtn label="Cross-sell IA" color="#73017B" onClick={() => triggerCrossSell(c)}/>
+                        )}
                         <IconBtn label="Editar" color={T.blue} onClick={() => openEditCo(c)}/>
                         <IconBtn label={active ? 'Suspender' : 'Reactivar'} color={active ? '#DC2626' : '#166534'} onClick={() => toggleSuspendCo(c)}/>
                       </div>
@@ -1250,6 +1406,39 @@ function AdminPanel() {
         </div>
         )} {/* fin tab !== subscriptions */}
       </div>
+
+      {/* ── Modal cross-sell IA ── */}
+      {crossSellModal && (
+        <Modal title={`Cross-sell IA — ${crossSellModal.company.name}`} onClose={() => setCrossSellModal(null)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {crossSellModal.loading ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 0', color: T.muted, fontSize: 13 }}>
+                <Spinner/> Generando sugerencia con IA…
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#73017B', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Sugerencia generada</div>
+                <p style={{ fontSize: 14, color: T.ink, margin: 0, lineHeight: 1.65, background: '#F7F0FA', borderRadius: 10, padding: '14px 16px' }}>
+                  {crossSellModal.suggestion}
+                </p>
+                {crossSellModal.missingProducts?.length > 0 && (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {crossSellModal.missingProducts.map(p => (
+                      <span key={p} style={{ fontSize: 11, fontWeight: 700, color: PRODUCTS[p]?.color, background: PRODUCTS[p]?.colorSoft, padding: '2px 8px', borderRadius: 5 }}>
+                        {PRODUCTS[p]?.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <button onClick={() => { navigator.clipboard.writeText(crossSellModal.suggestion); flash(true, 'Sugerencia copiada.') }}
+                  style={{ padding: '9px', borderRadius: 9, border: 'none', background: '#73017B', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                  Copiar texto
+                </button>
+              </>
+            )}
+          </div>
+        </Modal>
+      )}
 
       {/* ── Modal checkout Stripe ── */}
       {checkoutModal && (

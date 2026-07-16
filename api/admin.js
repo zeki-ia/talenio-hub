@@ -10,6 +10,13 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
+import Stripe from 'stripe'
+
+const STRIPE_PRICE_KEYS = {
+  climia:   { Start: 'STRIPE_PRICE_CLIMIA_START',   Growth: 'STRIPE_PRICE_CLIMIA_GROWTH',   Scale: 'STRIPE_PRICE_CLIMIA_SCALE'   },
+  promotia: { Start: 'STRIPE_PRICE_PROMOTIA_START', Growth: 'STRIPE_PRICE_PROMOTIA_GROWTH', Scale: 'STRIPE_PRICE_PROMOTIA_SCALE' },
+  nomia:    { Base:  'STRIPE_PRICE_NOMIA_BASE',      Growth: 'STRIPE_PRICE_NOMIA_GROWTH'    },
+}
 
 function adminClient() {
   // Acepta tanto SUPABASE_URL (server) como VITE_SUPABASE_URL (ya configurado en Vercel para el SPA)
@@ -155,6 +162,121 @@ export default async function handler(req, res) {
           nomiaClientes: nomiaClientes || [], climiaClients: climiaClients || [],
           nomiaPerfiles: nomiaPerfiles || [], climiaProfiles: climiaProfiles || [],
         })
+      }
+
+      // ── Métricas de uso ──────────────────────────────────────────────────
+      case 'getMetrics': {
+        const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+        const [
+          { count: totalCompanies },
+          { count: activeCompanies },
+          { count: totalUsers },
+          { count: newCompanies },
+          { count: newUsers },
+          { data: activeSubs },
+          { count: nomiaClientes },
+          { count: nomiaEmpleados },
+          { count: nomiaEscenarios },
+          { count: climiaClients },
+          { count: climiaProfiles },
+          { count: surveyResponses },
+        ] = await Promise.all([
+          supabase.from('companies').select('*', { count: 'exact', head: true }),
+          supabase.from('companies').select('*', { count: 'exact', head: true }).eq('is_active', true),
+          supabase.from('users').select('*', { count: 'exact', head: true }),
+          supabase.from('companies').select('*', { count: 'exact', head: true }).gte('created_at', since),
+          supabase.from('users').select('*', { count: 'exact', head: true }).gte('created_at', since),
+          supabase.from('subscriptions').select('product, status').eq('status', 'active'),
+          supabase.from('nomia_clientes').select('*', { count: 'exact', head: true }),
+          supabase.from('nomia_empleados').select('*', { count: 'exact', head: true }),
+          supabase.from('nomia_escenarios').select('*', { count: 'exact', head: true }),
+          supabase.from('climia_clients').select('*', { count: 'exact', head: true }),
+          supabase.from('climia_profiles').select('*', { count: 'exact', head: true }),
+          supabase.from('survey_responses').select('*', { count: 'exact', head: true }),
+        ])
+
+        const subsByProduct = {}
+        for (const s of activeSubs || []) {
+          subsByProduct[s.product] = (subsByProduct[s.product] || 0) + 1
+        }
+
+        return res.json({
+          global: { totalCompanies, activeCompanies, totalUsers, newCompanies, newUsers },
+          subs: subsByProduct,
+          nomia: { clientes: nomiaClientes, empleados: nomiaEmpleados, escenarios: nomiaEscenarios },
+          climia: { clients: climiaClients, profiles: climiaProfiles },
+          promotia: { surveyResponses },
+        })
+      }
+
+      // ── Rentabilidad Stripe ───────────────────────────────────────────────
+      case 'getRevenue': {
+        const stripeKey = process.env.STRIPE_SECRET_KEY
+        if (!stripeKey) return res.status(500).json({ error: 'STRIPE_SECRET_KEY no configurada' })
+        const stripe = new Stripe(stripeKey)
+
+        // Fetch all price amounts in parallel
+        const priceEntries = Object.entries(STRIPE_PRICE_KEYS).flatMap(([prod, plans]) =>
+          Object.entries(plans).map(([plan, envKey]) => ({ prod, plan, priceId: process.env[envKey] }))
+        ).filter(x => x.priceId)
+
+        const priceAmounts = await Promise.all(priceEntries.map(async ({ prod, plan, priceId }) => {
+          try {
+            const price = await stripe.prices.retrieve(priceId)
+            return { prod, plan, unitAmount: price.unit_amount ?? 0, currency: price.currency ?? 'ars' }
+          } catch { return { prod, plan, unitAmount: 0, currency: 'ars' } }
+        }))
+
+        const priceLookup = {}
+        for (const p of priceAmounts) priceLookup[`${p.prod}:${p.plan}`] = { amount: p.unitAmount, currency: p.currency }
+
+        // Active subscriptions from our DB
+        const { data: activeSubs } = await supabase.from('subscriptions').select('product, plan, status, company_id').eq('status', 'active')
+
+        // MRR per product (unit_amount is in cents)
+        const mrrByProduct = {}
+        const subCountByProduct = {}
+        for (const s of activeSubs || []) {
+          const key = `${s.product}:${s.plan}`
+          const entry = priceLookup[key]
+          mrrByProduct[s.product] = (mrrByProduct[s.product] || 0) + (entry?.amount || 0)
+          subCountByProduct[s.product] = (subCountByProduct[s.product] || 0) + 1
+        }
+
+        return res.json({ mrrByProduct, subCountByProduct, priceLookup })
+      }
+
+      // ── Cross-sell IA ─────────────────────────────────────────────────────
+      case 'crossSell': {
+        const { companyName, activeProducts } = params
+        if (!companyName || !activeProducts?.length) return res.status(400).json({ error: 'companyName y activeProducts requeridos' })
+
+        const apiKey = process.env.ANTHROPIC_API_KEY
+        if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY no configurada en Vercel' })
+
+        const DESCRIPTIONS = {
+          nomia:    'Nomia — presupuesto y control de payroll con escenarios y proyecciones salariales',
+          climia:   'Climia — clima organizacional con encuestas de pulso e informes ejecutivos con IA',
+          promotia: 'PromotIA — NPS B2B con análisis de detractores y planes de acción generados por IA',
+        }
+        const missing = ['nomia', 'climia', 'promotia'].filter(p => !activeProducts.includes(p))
+        if (!missing.length) return res.json({ suggestion: 'Esta empresa ya tiene todos los productos activos. ¡Perfecto!', missingProducts: [] })
+
+        const prompt = `Sos consultor de Delenio People, empresa de HR Tech SaaS.
+Empresa cliente: "${companyName}"
+Productos activos: ${activeProducts.map(p => DESCRIPTIONS[p]).join(' | ')}
+Productos disponibles que NO tienen: ${missing.map(p => DESCRIPTIONS[p]).join(' | ')}
+
+Escribí una sugerencia de cross-sell personalizada, breve (2-3 oraciones), en tono comercial amigable y en español. Elegí el producto faltante más complementario con lo que ya usan. No uses emojis.`
+
+        const resp = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+          body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 250, messages: [{ role: 'user', content: prompt }] }),
+        })
+        const ai = await resp.json()
+        const suggestion = ai.content?.[0]?.text?.trim() || 'No se pudo generar la sugerencia.'
+        return res.json({ suggestion, missingProducts: missing })
       }
 
       // ── Empresas ─────────────────────────────────────────────────────────
