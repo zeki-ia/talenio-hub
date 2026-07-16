@@ -138,7 +138,7 @@ export default async function handler(req, res) {
       // ── Lectura de datos (bypasa RLS con service role) ────────────────────
       case 'getData': {
         const [{ data: users }, { data: companies }, { data: subs }] = await Promise.all([
-          supabase.from('users').select('id, email, role, company_id, products'),
+          supabase.from('users').select('id, email, name, role, company_id, products'),
           supabase.from('companies').select('id, name, is_active, stripe_customer_id'),
           supabase.from('subscriptions').select('company_id, product, status, plan, stripe_subscription_id'),
         ])
@@ -221,22 +221,15 @@ export default async function handler(req, res) {
           const coName = coRow?.name || name?.trim() || ''
           const activeAfter = products // los que el usuario envió son los que deben quedar activos
 
-          console.log('[updateCompany] coName:', coName, '| activeAfter:', activeAfter)
           if (activeAfter.includes('nomia')) {
-            const { data: exists, error: checkErr } = await supabase.from('nomia_clientes').select('id').eq('nombre', coName).maybeSingle()
-            console.log('[nomia_clientes] exists:', exists, '| checkErr:', checkErr?.message)
-            if (!exists) {
-              const { error: insertErr } = await supabase.from('nomia_clientes').insert({ nombre: coName })
-              console.log('[nomia_clientes] insert error:', insertErr?.message || 'OK')
-            }
+            const { data: exists } = await supabase.from('nomia_clientes').select('id').eq('nombre', coName).maybeSingle()
+            if (!exists) await supabase.from('nomia_clientes').insert({ nombre: coName })
           }
           if (activeAfter.includes('climia')) {
-            const { data: exists, error: checkErr } = await supabase.from('climia_clients').select('id').eq('name', coName).maybeSingle()
-            console.log('[climia_clients] exists:', exists, '| checkErr:', checkErr?.message)
+            const { data: exists } = await supabase.from('climia_clients').select('id').eq('name', coName).maybeSingle()
             if (!exists) {
               const code = coName.slice(0, 3).toUpperCase().replace(/\s/g, '') + '-' + Math.random().toString(36).slice(2, 6).toUpperCase()
-              const { error: insertErr } = await supabase.from('climia_clients').insert({ name: coName, code, survey_token: crypto.randomUUID() })
-              console.log('[climia_clients] insert error:', insertErr?.message || 'OK')
+              await supabase.from('climia_clients').insert({ name: coName, code, survey_token: crypto.randomUUID() })
             }
           }
         }
@@ -302,7 +295,7 @@ export default async function handler(req, res) {
 
         // Tabla core
         await supabase.from('users').upsert(
-          { id: userId, email: emailLower, role, company_id: company_id || null, products },
+          { id: userId, email: emailLower, name: name || null, role, company_id: company_id || null, products },
           { onConflict: 'id' }
         )
 
@@ -361,16 +354,28 @@ export default async function handler(req, res) {
       }
 
       case 'updateUser': {
-        const { id, role, company_id, products } = params
+        const { id, role, company_id, products, name: newName, email: newEmail } = params
         if (!id) return res.status(400).json({ error: 'id requerido' })
 
         const updates = {}
-        if (role !== undefined)      updates.role       = role
+        if (role !== undefined)       updates.role       = role
         if (company_id !== undefined) updates.company_id = company_id || null
         if (products !== undefined)   updates.products   = products
+        if (newName !== undefined)    updates.name       = newName || null
 
         if (Object.keys(updates).length) {
           await supabase.from('users').update(updates).eq('id', id)
+        }
+
+        // Actualizar email y nombre en Auth si se envían
+        const authUpdates = {}
+        if (newEmail?.trim()) authUpdates.email = newEmail.trim().toLowerCase()
+        if (newName?.trim()) authUpdates.user_metadata = { full_name: newName.trim() }
+        if (Object.keys(authUpdates).length) {
+          await supabase.auth.admin.updateUserById(id, authUpdates)
+          if (newEmail?.trim()) {
+            await supabase.from('users').update({ email: newEmail.trim().toLowerCase() }).eq('id', id)
+          }
         }
 
         // Sincronizar perfiles en apps si cambió products

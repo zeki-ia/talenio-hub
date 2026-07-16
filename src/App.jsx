@@ -711,6 +711,8 @@ function AdminPanel() {
 
   // Editar usuario
   const [editUser, setEditUser]             = useState(null)
+  const [editUserName, setEditUserName]     = useState('')
+  const [editUserEmail, setEditUserEmail]   = useState('')
   const [editUserRole, setEditUserRole]     = useState('client')
   const [editUserCompany, setEditUserCompany] = useState('')
   const [editUserProds, setEditUserProds]   = useState([])
@@ -849,6 +851,8 @@ function AdminPanel() {
 
   function openEditUser(u) {
     setEditUser(u)
+    setEditUserName(u.name || '')
+    setEditUserEmail(u.email || '')
     setEditUserRole(u.role)
     setEditUserCompany(u.company_id || '')
     setEditUserProds(u.products || [])
@@ -857,7 +861,14 @@ function AdminPanel() {
   async function saveEditUser(e) {
     e.preventDefault(); setSaving(true)
     try {
-      await adminCall('updateUser', { id: editUser.id, role: editUserRole, company_id: editUserCompany || null, products: editUserProds })
+      await adminCall('updateUser', {
+        id: editUser.id,
+        name: editUserName,
+        email: editUserEmail !== editUser.email ? editUserEmail : undefined,
+        role: editUserRole,
+        company_id: editUserCompany || null,
+        products: editUserProds,
+      })
       flash(true, 'Usuario actualizado.')
       setEditUser(null)
       loadData()
@@ -1146,16 +1157,25 @@ function AdminPanel() {
                   return (
                     <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, background: suspended ? '#FEF2F2' : T.bg, border: `1px solid ${suspended ? '#FECACA' : T.border}` }}>
                       <div style={{ width: 32, height: 32, borderRadius: '50%', background: suspended ? '#FEE2E2' : T.blueSoft, display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 800, color: suspended ? '#DC2626' : T.blue, flexShrink: 0 }}>
-                        {u.email?.[0]?.toUpperCase()}
+                        {(u.name || u.email)?.[0]?.toUpperCase()}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                          <span style={{ fontSize: 12.5, fontWeight: 600, color: T.navy, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{u.email}</span>
+                          <span style={{ fontSize: 12.5, fontWeight: 700, color: T.navy, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>{u.name || '—'}</span>
                           <StatusBadge active={!suspended}/>
                         </div>
-                        <div style={{ fontSize: 11, color: T.muted }}>
-                          {u.role} · {companies.find(c => c.id === u.company_id)?.name || 'Sin empresa'}
+                        <div style={{ fontSize: 11, color: T.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {u.email} · {u.role} · {companies.find(c => c.id === u.company_id)?.name || 'Sin empresa'}
                         </div>
+                        {u.products?.length > 0 && (
+                          <div style={{ display: 'flex', gap: 3, marginTop: 3, flexWrap: 'wrap' }}>
+                            {u.products.map(p => (
+                              <span key={p} style={{ fontSize: 9, fontWeight: 700, color: PRODUCTS[p]?.color || T.muted, background: PRODUCTS[p]?.colorSoft || T.blueSoft, padding: '1px 5px', borderRadius: 4 }}>
+                                {PRODUCTS[p]?.name || p}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
                         <IconBtn label="Editar" color={T.blue} onClick={() => openEditUser(u)}/>
@@ -1228,8 +1248,14 @@ function AdminPanel() {
 
       {/* ── Modal editar usuario ── */}
       {editUser && (
-        <Modal title={`Editar: ${editUser.email}`} onClose={() => setEditUser(null)}>
-          <form onSubmit={saveEditUser} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <Modal title={`Editar usuario`} onClose={() => setEditUser(null)}>
+          <form onSubmit={saveEditUser} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div><label style={lbl}>Nombre completo</label><input style={inp} value={editUserName} onChange={e => setEditUserName(e.target.value)} placeholder="Juan Pérez"/></div>
+            <div>
+              <label style={lbl}>Email</label>
+              <input style={inp} type="email" required value={editUserEmail} onChange={e => setEditUserEmail(e.target.value)}/>
+              {editUserEmail !== editUser.email && <div style={{ fontSize: 11, color: '#B45309', marginTop: 4 }}>⚠ El email de login cambiará. El usuario recibirá un mail de confirmación.</div>}
+            </div>
             <div>
               <label style={lbl}>Rol</label>
               <select style={inp} value={editUserRole} onChange={e => setEditUserRole(e.target.value)}>
@@ -1263,7 +1289,7 @@ function AdminPanel() {
                 </div>
               ) : null
             })()}
-            <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
               <button type="button" onClick={() => setEditUser(null)} style={{ flex: 1, padding: '10px', borderRadius: 9, border: `1px solid ${T.border}`, background: T.bg, color: T.muted, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
                 Cancelar
               </button>
