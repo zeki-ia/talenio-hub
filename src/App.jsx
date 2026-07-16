@@ -1492,6 +1492,11 @@ function AdminPanel() {
                 {tab === 'companies' ? companies.filter(c => !searchQ || c.name?.toLowerCase().includes(searchQ.toLowerCase())).map(c => {
                   const prods   = companyProducts(c.id)
                   const active  = c.is_active !== false
+                  const cUsers  = users.filter(u => u.company_id === c.id)
+                  const hasNomia = nomiaPerfiles.some(p => cUsers.some(u => u.id === p.id))
+                  const hasClimia = climiaProfiles.some(p => cUsers.some(u => u.id === p.id))
+                  const score = (active ? 20 : 0) + (prods.length > 0 ? 25 : 0) + (cUsers.length > 0 ? 20 : 0) + (hasNomia ? 20 : 0) + (hasClimia ? 15 : 0)
+                  const scoreColor = score >= 70 ? '#16A34A' : score >= 40 ? '#B45309' : '#DC2626'
                   return (
                     <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, background: active ? T.bg : '#FEF2F2', border: `1px solid ${active ? T.border : '#FECACA'}` }}>
                       <div style={{ width: 32, height: 32, borderRadius: 9, background: active ? T.blueSoft : '#FEE2E2', display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 800, color: active ? T.blue : '#DC2626', flexShrink: 0 }}>
@@ -1509,6 +1514,13 @@ function AdminPanel() {
                             </span>
                           )) : <span style={{ fontSize: 10, color: T.muted }}>Sin productos</span>}
                         </div>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flexShrink: 0, minWidth: 38 }}>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: scoreColor, lineHeight: 1 }}>{score}</span>
+                        <div style={{ width: 32, height: 4, borderRadius: 2, background: T.border, overflow: 'hidden' }}>
+                          <div style={{ width: `${score}%`, height: '100%', background: scoreColor, borderRadius: 2, transition: 'width .3s' }}/>
+                        </div>
+                        <span style={{ fontSize: 9, color: T.muted, fontWeight: 600 }}>ENG</span>
                       </div>
                       <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
                         {active && (
