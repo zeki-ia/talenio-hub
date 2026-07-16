@@ -137,12 +137,24 @@ export default async function handler(req, res) {
 
       // ── Lectura de datos (bypasa RLS con service role) ────────────────────
       case 'getData': {
-        const [{ data: users }, { data: companies }, { data: subs }] = await Promise.all([
+        const [
+          { data: users }, { data: companies }, { data: subs },
+          { data: nomiaClientes }, { data: climiaClients },
+          { data: nomiaPerfiles }, { data: climiaProfiles },
+        ] = await Promise.all([
           supabase.from('users').select('id, email, name, role, company_id, products'),
           supabase.from('companies').select('id, name, is_active, stripe_customer_id'),
           supabase.from('subscriptions').select('company_id, product, status, plan, stripe_subscription_id'),
+          supabase.from('nomia_clientes').select('id, nombre').order('nombre'),
+          supabase.from('climia_clients').select('id, name').order('name'),
+          supabase.from('nomia_perfiles').select('id, cliente_id, rol'),
+          supabase.from('climia_profiles').select('id, client_id, role, status'),
         ])
-        return res.json({ users: users || [], companies: companies || [], subs: subs || [] })
+        return res.json({
+          users: users || [], companies: companies || [], subs: subs || [],
+          nomiaClientes: nomiaClientes || [], climiaClients: climiaClients || [],
+          nomiaPerfiles: nomiaPerfiles || [], climiaProfiles: climiaProfiles || [],
+        })
       }
 
       // ── Empresas ─────────────────────────────────────────────────────────
@@ -255,7 +267,7 @@ export default async function handler(req, res) {
       // ── Usuarios ─────────────────────────────────────────────────────────
 
       case 'createUser': {
-        const { email, name, role = 'client', company_id, products = [], password } = params
+        const { email, name, role = 'client', company_id, products = [], password, nomia_cliente_id, climia_client_id } = params
         if (!email?.trim()) return res.status(400).json({ error: 'Email requerido' })
 
         const emailLower = email.trim().toLowerCase()
@@ -309,16 +321,16 @@ export default async function handler(req, res) {
         // Perfiles en apps según productos seleccionados
         const isAdmin = role === 'admin'
         if (products.includes('climia')) {
-          let clientId = null
-          if (!isAdmin && companyName) clientId = await findOrCreateAppClient('climia_clients', 'name', companyName)
+          let clientId = climia_client_id != null ? climia_client_id : null
+          if (clientId === null && !isAdmin && companyName) clientId = await findOrCreateAppClient('climia_clients', 'name', companyName)
           await supabase.from('climia_profiles').upsert({
             id: userId, email: emailLower, name: name || emailLower,
             role: isAdmin ? 'admin' : 'cliente', client_id: isAdmin ? null : clientId, status: 'Activo',
           }, { onConflict: 'id' })
         }
         if (products.includes('nomia')) {
-          let clienteId = null
-          if (!isAdmin && companyName) clienteId = await findOrCreateAppClient('nomia_clientes', 'nombre', companyName)
+          let clienteId = nomia_cliente_id != null ? nomia_cliente_id : null
+          if (clienteId === null && !isAdmin && companyName) clienteId = await findOrCreateAppClient('nomia_clientes', 'nombre', companyName)
           await supabase.from('nomia_perfiles').upsert({
             id: userId, email: emailLower, nombre: name || emailLower,
             rol: isAdmin ? 'admin' : 'cliente', cliente_id: isAdmin ? null : clienteId,
@@ -354,7 +366,7 @@ export default async function handler(req, res) {
       }
 
       case 'updateUser': {
-        const { id, role, company_id, products, name: newName, email: newEmail } = params
+        const { id, role, company_id, products, name: newName, email: newEmail, nomia_cliente_id, climia_client_id } = params
         if (!id) return res.status(400).json({ error: 'id requerido' })
 
         const updates = {}
@@ -394,20 +406,28 @@ export default async function handler(req, res) {
           const isAdminRole = role === 'admin'
 
           if (products.includes('climia')) {
-            let climiaClientId = null
-            if (!isAdminRole && companyName) climiaClientId = await findOrCreateAppClient('climia_clients', 'name', companyName)
+            // Si se especificó un client_id explícito, usarlo; si no, buscar/crear por empresa
+            let climiaClientId = climia_client_id !== undefined ? (climia_client_id || null) : null
+            if (climiaClientId === null && !isAdminRole && companyName) {
+              climiaClientId = await findOrCreateAppClient('climia_clients', 'name', companyName)
+            }
+            const displayName = newName || emailLower
             await supabase.from('climia_profiles').upsert({
-              id, email: emailLower, name: emailLower,
+              id, email: emailLower, name: displayName,
               role: isAdminRole ? 'admin' : 'cliente', client_id: isAdminRole ? null : climiaClientId, status: 'Activo',
             }, { onConflict: 'id' })
           } else {
             await supabase.from('climia_profiles').update({ status: 'Suspendido' }).eq('id', id)
           }
           if (products.includes('nomia')) {
-            let nomiaClienteId = null
-            if (!isAdminRole && companyName) nomiaClienteId = await findOrCreateAppClient('nomia_clientes', 'nombre', companyName)
+            // Si se especificó un cliente_id explícito, usarlo; si no, buscar/crear por empresa
+            let nomiaClienteId = nomia_cliente_id !== undefined ? (nomia_cliente_id || null) : null
+            if (nomiaClienteId === null && !isAdminRole && companyName) {
+              nomiaClienteId = await findOrCreateAppClient('nomia_clientes', 'nombre', companyName)
+            }
+            const displayName = newName || emailLower
             await supabase.from('nomia_perfiles').upsert({
-              id, email: emailLower, nombre: emailLower,
+              id, email: emailLower, nombre: displayName,
               rol: isAdminRole ? 'admin' : 'cliente',
               cliente_id: isAdminRole ? null : nomiaClienteId,
             }, { onConflict: 'id' })

@@ -686,18 +686,24 @@ function AdminPanel() {
   const [users, setUsers]         = useState([])
   const [companies, setCompanies] = useState([])
   const [subs, setSubs]           = useState([])
+  const [nomiaClientes, setNomiaClientes] = useState([])
+  const [climiaClients, setClimiaClients] = useState([])
+  const [nomiaPerfiles, setNomiaPerfiles] = useState([])
+  const [climiaProfiles, setClimiaProfiles] = useState([])
   const [loading, setLoading]     = useState(false)
   const [saving, setSaving]       = useState(false)
   const [msg, setMsg]             = useState('')
   const [err, setErr]             = useState('')
 
   // Crear usuario
-  const [uEmail, setUEmail]       = useState('')
-  const [uName, setUName]         = useState('')
-  const [uRole, setURole]         = useState('client')
-  const [uCompany, setUCompany]   = useState('')
-  const [uProducts, setUProducts] = useState([])
-  const [uPassword, setUPassword] = useState('')
+  const [uEmail, setUEmail]             = useState('')
+  const [uName, setUName]               = useState('')
+  const [uRole, setURole]               = useState('client')
+  const [uCompany, setUCompany]         = useState('')
+  const [uProducts, setUProducts]       = useState([])
+  const [uPassword, setUPassword]       = useState('')
+  const [uNomiaCliente, setUNomiaCliente] = useState('')
+  const [uClimiaClient, setUClimiaClient] = useState('')
 
   // Crear empresa
   const [cName, setCName]         = useState('')
@@ -710,12 +716,14 @@ function AdminPanel() {
   const [editCoActive, setEditCoActive]   = useState(true)
 
   // Editar usuario
-  const [editUser, setEditUser]             = useState(null)
-  const [editUserName, setEditUserName]     = useState('')
-  const [editUserEmail, setEditUserEmail]   = useState('')
-  const [editUserRole, setEditUserRole]     = useState('client')
+  const [editUser, setEditUser]               = useState(null)
+  const [editUserName, setEditUserName]       = useState('')
+  const [editUserEmail, setEditUserEmail]     = useState('')
+  const [editUserRole, setEditUserRole]       = useState('client')
   const [editUserCompany, setEditUserCompany] = useState('')
-  const [editUserProds, setEditUserProds]   = useState([])
+  const [editUserProds, setEditUserProds]     = useState([])
+  const [editNomiaCliente, setEditNomiaCliente] = useState('')
+  const [editClimiaClient, setEditClimiaClient] = useState('')
 
   // Suscripciones Stripe
   const [checkoutModal, setCheckoutModal]   = useState(null) // { company, product, plan, url }
@@ -783,6 +791,10 @@ function AdminPanel() {
       setUsers(data.users || [])
       setCompanies(data.companies || [])
       setSubs(data.subs || [])
+      setNomiaClientes(data.nomiaClientes || [])
+      setClimiaClients(data.climiaClients || [])
+      setNomiaPerfiles(data.nomiaPerfiles || [])
+      setClimiaProfiles(data.climiaProfiles || [])
     } catch(e) {
       setErr(e.message)
     }
@@ -801,9 +813,15 @@ function AdminPanel() {
   async function createUser(e) {
     e.preventDefault(); setSaving(true)
     try {
-      await adminCall('createUser', { email: uEmail, name: uName, role: uRole, company_id: uCompany || null, products: uProducts, password: uPassword || undefined })
+      await adminCall('createUser', {
+        email: uEmail, name: uName, role: uRole,
+        company_id: uCompany || null, products: uProducts, password: uPassword || undefined,
+        nomia_cliente_id: uProducts.includes('nomia') && uNomiaCliente ? Number(uNomiaCliente) : undefined,
+        climia_client_id: uProducts.includes('climia') && uClimiaClient ? Number(uClimiaClient) : undefined,
+      })
       flash(true, uPassword ? `Usuario ${uEmail} creado con contraseña.` : `Usuario ${uEmail} creado. Recibirá un email de invitación.`)
       setUEmail(''); setUName(''); setURole('client'); setUCompany(''); setUProducts([]); setUPassword('')
+      setUNomiaCliente(''); setUClimiaClient('')
       loadData()
     } catch(e) { flash(false, e.message) }
     setSaving(false)
@@ -856,6 +874,11 @@ function AdminPanel() {
     setEditUserRole(u.role)
     setEditUserCompany(u.company_id || '')
     setEditUserProds(u.products || [])
+    // Pre-cargar asignaciones actuales de apps
+    const nomPerfil = nomiaPerfiles.find(p => p.id === u.id)
+    const climPerfil = climiaProfiles.find(p => p.id === u.id)
+    setEditNomiaCliente(nomPerfil?.cliente_id != null ? String(nomPerfil.cliente_id) : '')
+    setEditClimiaClient(climPerfil?.client_id != null ? String(climPerfil.client_id) : '')
   }
 
   async function saveEditUser(e) {
@@ -868,6 +891,8 @@ function AdminPanel() {
         role: editUserRole,
         company_id: editUserCompany || null,
         products: editUserProds,
+        nomia_cliente_id: editUserProds.includes('nomia') ? (editNomiaCliente ? Number(editNomiaCliente) : null) : undefined,
+        climia_client_id: editUserProds.includes('climia') ? (editClimiaClient ? Number(editClimiaClient) : null) : undefined,
       })
       flash(true, 'Usuario actualizado.')
       setEditUser(null)
@@ -1088,19 +1113,38 @@ function AdminPanel() {
                 {uCompany && (() => {
                   const available = companyProducts(uCompany).filter(p => !PRODUCTS[p]?.freemium)
                   return available.length > 0 ? (
-                    <div>
-                      <label style={lbl}>Acceso a productos</label>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {available.map(key => {
-                          const p = PRODUCTS[key]
-                          return (
-                            <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '7px 10px', borderRadius: 8, background: uProducts.includes(key) ? (p.colorSoft || T.blueSoft) : T.bg, border: `1px solid ${uProducts.includes(key) ? p.color + '40' : T.border}` }}>
-                              <input type="checkbox" checked={uProducts.includes(key)} onChange={e => setUProducts(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <label style={lbl}>Acceso a productos y cliente por app</label>
+                      {available.map(key => {
+                        const p = PRODUCTS[key]
+                        const checked = uProducts.includes(key)
+                        return (
+                          <div key={key} style={{ borderRadius: 10, border: `1px solid ${checked ? p.color + '50' : T.border}`, background: checked ? (p.colorSoft || T.blueSoft) : T.bg, overflow: 'hidden' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '9px 12px' }}>
+                              <input type="checkbox" checked={checked} onChange={e => setUProducts(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
                               <span style={{ color: p.color, fontWeight: 700 }}>{p.name}</span>
                             </label>
-                          )
-                        })}
-                      </div>
+                            {checked && uRole !== 'admin' && key === 'nomia' && (
+                              <div style={{ padding: '0 12px 10px' }}>
+                                <label style={{ ...lbl, marginBottom: 4 }}>Cliente en Nomia <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 10 }}>(opcional — se auto-asigna por empresa)</span></label>
+                                <select style={inp} value={uNomiaCliente} onChange={e => setUNomiaCliente(e.target.value)}>
+                                  <option value="">— Auto por empresa —</option>
+                                  {nomiaClientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                              </div>
+                            )}
+                            {checked && uRole !== 'admin' && key === 'climia' && (
+                              <div style={{ padding: '0 12px 10px' }}>
+                                <label style={{ ...lbl, marginBottom: 4 }}>Cliente en Climia <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 10 }}>(opcional — se auto-asigna por empresa)</span></label>
+                                <select style={inp} value={uClimiaClient} onChange={e => setUClimiaClient(e.target.value)}>
+                                  <option value="">— Auto por empresa —</option>
+                                  {climiaClients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                </select>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   ) : <div style={{ fontSize: 12, color: T.muted, padding: '6px 0' }}>Esta empresa no tiene productos activos aún.</div>
                 })()}
@@ -1169,11 +1213,26 @@ function AdminPanel() {
                         </div>
                         {u.products?.length > 0 && (
                           <div style={{ display: 'flex', gap: 3, marginTop: 3, flexWrap: 'wrap' }}>
-                            {u.products.map(p => (
-                              <span key={p} style={{ fontSize: 9, fontWeight: 700, color: PRODUCTS[p]?.color || T.muted, background: PRODUCTS[p]?.colorSoft || T.blueSoft, padding: '1px 5px', borderRadius: 4 }}>
-                                {PRODUCTS[p]?.name || p}
-                              </span>
-                            ))}
+                            {u.products.map(p => {
+                              const prod = PRODUCTS[p]
+                              // Buscar cliente asignado en la app
+                              let appClientLabel = null
+                              if (p === 'nomia') {
+                                const perf = nomiaPerfiles.find(x => x.id === u.id)
+                                const cli = perf?.cliente_id != null ? nomiaClientes.find(c => c.id === perf.cliente_id) : null
+                                if (cli) appClientLabel = cli.nombre
+                              } else if (p === 'climia') {
+                                const perf = climiaProfiles.find(x => x.id === u.id)
+                                const cli = perf?.client_id != null ? climiaClients.find(c => c.id === perf.client_id) : null
+                                if (cli) appClientLabel = cli.name
+                              }
+                              return (
+                                <span key={p} title={appClientLabel ? `Cliente: ${appClientLabel}` : undefined}
+                                  style={{ fontSize: 9, fontWeight: 700, color: prod?.color || T.muted, background: prod?.colorSoft || T.blueSoft, padding: '1px 6px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                  {prod?.name || p}{appClientLabel ? ` · ${appClientLabel}` : ''}
+                                </span>
+                              )
+                            })}
                           </div>
                         )}
                       </div>
@@ -1273,19 +1332,38 @@ function AdminPanel() {
             {editUserCompany && (() => {
               const available = companyProducts(editUserCompany).filter(p => !PRODUCTS[p]?.freemium)
               return available.length > 0 ? (
-                <div>
-                  <label style={lbl}>Acceso a productos</label>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {available.map(key => {
-                      const p = PRODUCTS[key]
-                      return (
-                        <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '7px 10px', borderRadius: 8, background: editUserProds.includes(key) ? (p.colorSoft || T.blueSoft) : T.bg, border: `1px solid ${editUserProds.includes(key) ? p.color + '40' : T.border}` }}>
-                          <input type="checkbox" checked={editUserProds.includes(key)} onChange={e => setEditUserProds(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <label style={lbl}>Acceso a productos y cliente por app</label>
+                  {available.map(key => {
+                    const p = PRODUCTS[key]
+                    const checked = editUserProds.includes(key)
+                    return (
+                      <div key={key} style={{ borderRadius: 10, border: `1px solid ${checked ? p.color + '50' : T.border}`, background: checked ? (p.colorSoft || T.blueSoft) : T.bg, overflow: 'hidden' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '9px 12px' }}>
+                          <input type="checkbox" checked={checked} onChange={e => setEditUserProds(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
                           <span style={{ color: p.color, fontWeight: 700 }}>{p.name}</span>
                         </label>
-                      )
-                    })}
-                  </div>
+                        {checked && editUserRole !== 'admin' && key === 'nomia' && (
+                          <div style={{ padding: '0 12px 10px' }}>
+                            <label style={{ ...lbl, marginBottom: 4 }}>Cliente en Nomia</label>
+                            <select style={inp} value={editNomiaCliente} onChange={e => setEditNomiaCliente(e.target.value)}>
+                              <option value="">— Sin asignar —</option>
+                              {nomiaClientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                            </select>
+                          </div>
+                        )}
+                        {checked && editUserRole !== 'admin' && key === 'climia' && (
+                          <div style={{ padding: '0 12px 10px' }}>
+                            <label style={{ ...lbl, marginBottom: 4 }}>Cliente en Climia</label>
+                            <select style={inp} value={editClimiaClient} onChange={e => setEditClimiaClient(e.target.value)}>
+                              <option value="">— Sin asignar —</option>
+                              {climiaClients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               ) : null
             })()}
