@@ -683,6 +683,7 @@ function AdminPanel() {
   const lbl = { fontSize: 11, fontWeight: 700, color: T.muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }
 
   const [tab, setTab]             = useState('companies')
+  const [searchQ, setSearchQ]     = useState('')
   const [users, setUsers]         = useState([])
   const [companies, setCompanies] = useState([])
   const [subs, setSubs]           = useState([])
@@ -995,7 +996,7 @@ function AdminPanel() {
 
         <div style={{ display: 'flex', gap: 4, background: T.border, borderRadius: 10, padding: 3, width: 'fit-content', marginBottom: 24 }}>
           {[['dashboard','Dashboard'],['companies','Empresas'],['users','Usuarios'],['subscriptions','Suscripciones']].map(([t, l]) => (
-            <button key={t} onClick={() => { setTab(t); setMsg(''); setErr('') }} style={{
+            <button key={t} onClick={() => { setTab(t); setMsg(''); setErr(''); setSearchQ('') }} style={{
               padding: '7px 18px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 700,
               background: tab === t ? '#fff' : 'transparent', color: tab === t ? T.navy : T.muted,
               cursor: 'pointer', boxShadow: tab === t ? '0 1px 4px rgba(0,0,0,.08)' : 'none',
@@ -1310,7 +1311,7 @@ function AdminPanel() {
 
           {/* ── Lista ── */}
           <div style={{ background: T.paper, borderRadius: 14, padding: 24, border: `1px solid ${T.border}` }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h3 style={{ fontSize: 14, fontWeight: 800, color: T.navy, margin: 0 }}>
                 {tab === 'companies' ? `Empresas (${companies.length})` : `Usuarios (${users.length})`}
               </h3>
@@ -1318,11 +1319,17 @@ function AdminPanel() {
                 ↺ Actualizar
               </button>
             </div>
+            <input
+              value={searchQ}
+              onChange={e => setSearchQ(e.target.value)}
+              placeholder={tab === 'companies' ? 'Buscar empresa…' : 'Buscar por nombre o email…'}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${T.border}`, fontSize: 13, color: T.ink, background: T.bg, outline: 'none', marginBottom: 12, boxSizing: 'border-box' }}
+            />
 
             {loading ? <Spinner/> : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 480, overflowY: 'auto' }}>
 
-                {tab === 'companies' ? companies.map(c => {
+                {tab === 'companies' ? companies.filter(c => !searchQ || c.name?.toLowerCase().includes(searchQ.toLowerCase())).map(c => {
                   const prods   = companyProducts(c.id)
                   const active  = c.is_active !== false
                   return (
@@ -1352,7 +1359,7 @@ function AdminPanel() {
                       </div>
                     </div>
                   )
-                }) : users.map(u => {
+                }) : users.filter(u => !searchQ || (u.name + ' ' + u.email).toLowerCase().includes(searchQ.toLowerCase())).map(u => {
                   const suspended = u.role === 'suspended'
                   return (
                     <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, background: suspended ? '#FEF2F2' : T.bg, border: `1px solid ${suspended ? '#FECACA' : T.border}` }}>
