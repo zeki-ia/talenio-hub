@@ -821,7 +821,7 @@ function AdminPanel() {
     setCrossSellModal({ company, suggestion: null, loading: true })
     try {
       const data = await adminCall('crossSell', { companyName: company.name, activeProducts })
-      setCrossSellModal({ company, suggestion: data.suggestion, missingProducts: data.missingProducts, loading: false })
+      setCrossSellModal({ company, suggestion: data.suggestion, loading: false })
     } catch(e) {
       setCrossSellModal({ company, suggestion: 'Error al generar sugerencia: ' + e.message, loading: false })
     }
@@ -1344,7 +1344,7 @@ function AdminPanel() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
-                        {prods.length > 0 && prods.length < 3 && (
+                        {active && (
                           <IconBtn label="Cross-sell IA" color="#73017B" onClick={() => triggerCrossSell(c)}/>
                         )}
                         <IconBtn label="Editar" color={T.blue} onClick={() => openEditCo(c)}/>
@@ -1421,15 +1421,6 @@ function AdminPanel() {
                 <p style={{ fontSize: 14, color: T.ink, margin: 0, lineHeight: 1.65, background: '#F7F0FA', borderRadius: 10, padding: '14px 16px' }}>
                   {crossSellModal.suggestion}
                 </p>
-                {crossSellModal.missingProducts?.length > 0 && (
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    {crossSellModal.missingProducts.map(p => (
-                      <span key={p} style={{ fontSize: 11, fontWeight: 700, color: PRODUCTS[p]?.color, background: PRODUCTS[p]?.colorSoft, padding: '2px 8px', borderRadius: 5 }}>
-                        {PRODUCTS[p]?.name}
-                      </span>
-                    ))}
-                  </div>
-                )}
                 <button onClick={() => { navigator.clipboard.writeText(crossSellModal.suggestion); flash(true, 'Sugerencia copiada.') }}
                   style={{ padding: '9px', borderRadius: 9, border: 'none', background: '#73017B', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
                   Copiar texto

@@ -249,34 +249,58 @@ export default async function handler(req, res) {
       // ── Cross-sell IA ─────────────────────────────────────────────────────
       case 'crossSell': {
         const { companyName, activeProducts } = params
-        if (!companyName || !activeProducts?.length) return res.status(400).json({ error: 'companyName y activeProducts requeridos' })
+        if (!companyName) return res.status(400).json({ error: 'companyName requerido' })
 
         const apiKey = process.env.ANTHROPIC_API_KEY
         if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY no configurada en Vercel' })
 
-        const DESCRIPTIONS = {
-          nomia:    'Nomia — presupuesto y control de payroll con escenarios y proyecciones salariales',
-          climia:   'Climia — clima organizacional con encuestas de pulso e informes ejecutivos con IA',
-          promotia: 'PromotIA — NPS B2B con análisis de detractores y planes de acción generados por IA',
-        }
-        const missing = ['nomia', 'climia', 'promotia'].filter(p => !activeProducts.includes(p))
-        if (!missing.length) return res.json({ suggestion: 'Esta empresa ya tiene todos los productos activos. ¡Perfecto!', missingProducts: [] })
+        const ECOSISTEMA = `
+## Plataforma SaaS (Talenio)
+- Nomia: presupuesto y control de payroll, escenarios y proyecciones salariales
+- Climia: clima organizacional con encuestas de pulso mensuales e informes ejecutivos con IA
+- PromotIA: NPS B2B con análisis de detractores y planes de acción generados por IA
+- Lyrion: coaching comercial con IA — observa conversaciones de ventas y detecta oportunidades en riesgo
+- Wiggins: account intelligence — investiga empresas, decisores y stack tecnológico en un click
+- Wiru Catálogo: ventas por WhatsApp sin perder pedidos (catálogo + pedidos integrados)
+- Wiru Radar: detecta clientes en riesgo mediante segmentación RFM automática y alertas semanales
 
-        const prompt = `Sos consultor de Delenio People, empresa de HR Tech SaaS.
+## Consultoría y servicios (Delenio)
+
+### Ingeniería Comercial
+Diseño de sistemas de ventas con previsibilidad: diagnóstico comercial integral, plan estratégico de ventas, modelo de ventas y ciclos, gestión comercial y forecast, esquemas de compensación, kit comercial y manual de ventas.
+
+### Growth
+Crecimiento con foco en demanda real: generación de leads B2B, diseño de canales escalables, control de performance y ROI, optimización del CAC.
+
+### Marketing & Customer Success
+Marketing estratégico, customer success y experiencia de cliente, estrategia de contenidos, métricas de satisfacción (NPS/churn), marca y web, CRM y automation.
+
+### People (consultoría HR)
+Diagnóstico de madurez organizacional, diseño organizacional, procesos ágiles, transformación digital HR, conexión de talento (búsqueda especializada), aceleración de equipos comerciales, socio estratégico continuo.
+
+### Asistencia Artificial
+Agentes de IA comerciales, implementación de CRM, atención automatizada (chatbots), automatización de procesos y workflows.`
+
+        const appsActivas = (activeProducts || []).join(', ') || 'ninguna'
+
+        const prompt = `Sos un consultor senior de Delenio, empresa de consultoría y tecnología B2B para PyMEs.
+
 Empresa cliente: "${companyName}"
-Productos activos: ${activeProducts.map(p => DESCRIPTIONS[p]).join(' | ')}
-Productos disponibles que NO tienen: ${missing.map(p => DESCRIPTIONS[p]).join(' | ')}
+Apps/productos activos: ${appsActivas}
 
-Escribí una sugerencia de cross-sell personalizada, breve (2-3 oraciones), en tono comercial amigable y en español. Elegí el producto faltante más complementario con lo que ya usan. No uses emojis.`
+Ecosistema completo de Delenio disponible para ofrecer:
+${ECOSISTEMA}
+
+Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada para esta empresa, de 3 a 5 oraciones. Puede ser otro producto SaaS, un servicio de consultoría, o una combinación. Elegí lo más complementario con lo que ya usan y lo que típicamente necesita una empresa en esa etapa. Tono comercial, directo, sin emojis, en español rioplatense.`
 
         const resp = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-          body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 250, messages: [{ role: 'user', content: prompt }] }),
+          body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 400, messages: [{ role: 'user', content: prompt }] }),
         })
         const ai = await resp.json()
         const suggestion = ai.content?.[0]?.text?.trim() || 'No se pudo generar la sugerencia.'
-        return res.json({ suggestion, missingProducts: missing })
+        return res.json({ suggestion })
       }
 
       // ── Empresas ─────────────────────────────────────────────────────────
