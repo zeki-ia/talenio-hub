@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
@@ -700,6 +700,16 @@ function AdminPanel() {
     try { return JSON.parse(localStorage.getItem('hub_costs') || '{}') } catch { return {} }
   })
   const [crossSellModal, setCrossSellModal] = useState(null) // { company, suggestion, loading }
+  const [showNotifs, setShowNotifs] = useState(false)
+  const [wizard, setWizard]       = useState(null) // null | { step:0|1|2, companyId:null, companyName:'' }
+  const [wizCoName, setWizCoName] = useState('')
+  const [wizCoProds, setWizCoProds] = useState([])
+  const [wizUEmail, setWizUEmail] = useState('')
+  const [wizUName, setWizUName]   = useState('')
+  const [wizUPass, setWizUPass]   = useState('')
+  const [wizUProds, setWizUProds] = useState([])
+  const [wizLoading, setWizLoading] = useState(false)
+  const [wizErr, setWizErr]       = useState('')
   const [loading, setLoading]     = useState(false)
   const [saving, setSaving]       = useState(false)
   const [msg, setMsg]             = useState('')
@@ -859,6 +869,58 @@ function AdminPanel() {
     setTimeout(() => { setMsg(''); setErr('') }, 4000)
   }
 
+  // ── Notificaciones ───────────────────────────────────────────────────────────
+  const notifications = useMemo(() => {
+    const alerts = []
+    users.filter(u => u.role !== 'admin' && !u.company_id).forEach(u =>
+      alerts.push({ level: 'warn', text: `${u.name || u.email} sin empresa asignada`, action: () => { setShowNotifs(false); openEditUser(u) } })
+    )
+    users.filter(u => u.role !== 'admin' && u.company_id && (!u.products || u.products.length === 0)).forEach(u =>
+      alerts.push({ level: 'warn', text: `${u.name || u.email} sin acceso a ningún producto`, action: () => { setShowNotifs(false); openEditUser(u) } })
+    )
+    companies.filter(c => c.is_active === false).forEach(c =>
+      alerts.push({ level: 'error', text: `Empresa "${c.name}" suspendida`, action: () => { setShowNotifs(false); openEditCo(c) } })
+    )
+    const activeCoIds = new Set(subs.filter(s => s.status === 'active').map(s => s.company_id))
+    companies.filter(c => c.is_active !== false && !activeCoIds.has(c.id)).forEach(c =>
+      alerts.push({ level: 'info', text: `"${c.name}" sin suscripción activa`, action: () => { setShowNotifs(false); setTab('subscriptions') } })
+    )
+    return alerts
+  }, [users, companies, subs])
+
+  // ── Wizard onboarding ────────────────────────────────────────────────────────
+  function openWizard() {
+    setWizard({ step: 0, companyId: null, companyName: '' })
+    setWizCoName(''); setWizCoProds([]); setWizUEmail(''); setWizUName(''); setWizUPass(''); setWizUProds([]); setWizErr('')
+  }
+
+  async function wizStep0(e) {
+    e.preventDefault(); setWizLoading(true); setWizErr('')
+    try {
+      await adminCall('createCompany', { name: wizCoName, products: wizCoProds })
+      await loadData()
+      setWizard(w => ({ ...w, step: 1, companyName: wizCoName }))
+    } catch(e) { setWizErr(e.message) }
+    setWizLoading(false)
+  }
+
+  async function wizStep1(e) {
+    e.preventDefault(); setWizLoading(true); setWizErr('')
+    try {
+      const freshData = await adminCall('getData')
+      const co = (freshData.companies || []).find(c => c.name === wizCoName)
+      if (!co) throw new Error('Empresa no encontrada tras crearla')
+      await adminCall('createUser', {
+        email: wizUEmail, name: wizUName, role: 'client',
+        company_id: co.id, products: wizUProds,
+        password: wizUPass || undefined,
+      })
+      setWizard(w => ({ ...w, step: 2 }))
+      await loadData()
+    } catch(e) { setWizErr(e.message) }
+    setWizLoading(false)
+  }
+
   async function createUser(e) {
     e.preventDefault(); setSaving(true)
     try {
@@ -992,6 +1054,51 @@ function AdminPanel() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M12 4a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
           </div>
           <h2 style={{ fontSize: 17, fontWeight: 800, color: T.navy }}>Administración</h2>
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Campana de notificaciones */}
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setShowNotifs(v => !v)} style={{
+                position: 'relative', background: showNotifs ? T.blueSoft : 'none', border: `1px solid ${T.border}`,
+                borderRadius: 8, width: 34, height: 34, display: 'grid', placeItems: 'center', cursor: 'pointer',
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={notifications.length > 0 ? T.blue : T.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                </svg>
+                {notifications.length > 0 && (
+                  <span style={{ position: 'absolute', top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8, background: '#E5564B', color: '#fff', fontSize: 9, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', lineHeight: 1 }}>
+                    {notifications.length}
+                  </span>
+                )}
+              </button>
+              {showNotifs && (
+                <div style={{ position: 'absolute', right: 0, top: 40, width: 320, background: T.paper, border: `1px solid ${T.border}`, borderRadius: 14, boxShadow: '0 8px 32px rgba(0,0,0,.13)', zIndex: 50, overflow: 'hidden' }}>
+                  <div style={{ padding: '12px 16px', borderBottom: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: T.navy }}>Alertas</span>
+                    <button onClick={() => setShowNotifs(false)} style={{ background: 'none', border: 'none', fontSize: 18, color: T.muted, cursor: 'pointer', lineHeight: 1, padding: 2 }}>×</button>
+                  </div>
+                  {notifications.length === 0 ? (
+                    <div style={{ padding: '24px 16px', textAlign: 'center', color: T.muted, fontSize: 13 }}>Sin alertas pendientes ✓</div>
+                  ) : (
+                    <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                      {notifications.map((n, i) => (
+                        <button key={i} onClick={n.action} style={{
+                          width: '100%', textAlign: 'left', background: 'none', border: 'none', borderBottom: `1px solid ${T.border}`,
+                          padding: '11px 16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10,
+                        }}>
+                          <span style={{ fontSize: 14, flexShrink: 0 }}>{n.level === 'error' ? '🔴' : n.level === 'warn' ? '🟡' : '🔵'}</span>
+                          <span style={{ fontSize: 12.5, color: T.ink, lineHeight: 1.4 }}>{n.text}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            {/* Wizard nuevo cliente */}
+            <button onClick={openWizard} style={{ background: T.blue, border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>+</span> Nuevo cliente
+            </button>
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: 4, background: T.border, borderRadius: 10, padding: 3, width: 'fit-content', marginBottom: 24 }}>
@@ -1489,6 +1596,111 @@ function AdminPanel() {
               </button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {/* ── Wizard onboarding nuevo cliente ── */}
+      {wizard && (
+        <Modal title={`Nuevo cliente — Paso ${wizard.step + 1} de 3`} onClose={() => setWizard(null)}>
+          {/* Stepper */}
+          <div style={{ display: 'flex', gap: 0, marginBottom: 22, borderRadius: 9, overflow: 'hidden', border: `1px solid ${T.border}` }}>
+            {['Empresa', 'Usuario', 'Listo'].map((label, i) => (
+              <div key={i} style={{ flex: 1, padding: '8px 0', textAlign: 'center', fontSize: 12, fontWeight: 700,
+                background: wizard.step === i ? T.blue : wizard.step > i ? T.blueSoft : T.bg,
+                color: wizard.step === i ? '#fff' : wizard.step > i ? T.blue : T.muted,
+                borderRight: i < 2 ? `1px solid ${T.border}` : 'none',
+              }}>{label}</div>
+            ))}
+          </div>
+
+          {wizErr && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '9px 13px', fontSize: 13, color: '#DC2626', marginBottom: 14 }}>{wizErr}</div>}
+
+          {wizard.step === 0 && (
+            <form onSubmit={wizStep0} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: T.muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nombre de la empresa</label>
+                <input style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: `1px solid ${T.border}`, fontSize: 13, color: T.ink, background: T.bg, outline: 'none', boxSizing: 'border-box' }}
+                  required value={wizCoName} onChange={e => setWizCoName(e.target.value)} placeholder="Acme S.A."/>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: T.muted, display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Productos a activar</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {Object.entries(PRODUCTS).filter(([, p]) => !p.freemium).map(([key, p]) => (
+                    <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '8px 10px', borderRadius: 8, background: wizCoProds.includes(key) ? (p.colorSoft || T.blueSoft) : T.bg, border: `1px solid ${wizCoProds.includes(key) ? p.color + '50' : T.border}` }}>
+                      <input type="checkbox" checked={wizCoProds.includes(key)} onChange={e => setWizCoProds(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
+                      <span style={{ color: p.color, fontWeight: 700 }}>{p.name}</span>
+                      <span style={{ color: T.muted, fontSize: 11 }}>— {p.tagline}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <button type="submit" disabled={wizLoading} style={{ padding: '10px', borderRadius: 9, border: 'none', background: T.blue, color: '#fff', fontWeight: 700, fontSize: 13, cursor: wizLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                {wizLoading && <Spinner color="#fff" size={12}/>} {wizLoading ? 'Creando empresa…' : 'Continuar →'}
+              </button>
+            </form>
+          )}
+
+          {wizard.step === 1 && (
+            <form onSubmit={wizStep1} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ background: T.blueSoft, borderRadius: 8, padding: '9px 12px', fontSize: 12.5, color: T.blue, fontWeight: 600 }}>
+                Empresa <b>{wizard.companyName}</b> creada. Ahora creá el primer usuario.
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: T.muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Email</label>
+                <input type="email" required style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: `1px solid ${T.border}`, fontSize: 13, color: T.ink, background: T.bg, outline: 'none', boxSizing: 'border-box' }}
+                  value={wizUEmail} onChange={e => setWizUEmail(e.target.value)} placeholder="usuario@empresa.com"/>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: T.muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nombre completo</label>
+                <input style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: `1px solid ${T.border}`, fontSize: 13, color: T.ink, background: T.bg, outline: 'none', boxSizing: 'border-box' }}
+                  value={wizUName} onChange={e => setWizUName(e.target.value)} placeholder="Juan Pérez"/>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: T.muted, display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Contraseña (opcional)</label>
+                <input type="password" style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: `1px solid ${T.border}`, fontSize: 13, color: T.ink, background: T.bg, outline: 'none', boxSizing: 'border-box' }}
+                  value={wizUPass} onChange={e => setWizUPass(e.target.value)} placeholder="Dejar vacío → enviará invitación por email"/>
+              </div>
+              {wizCoProds.length > 0 && (
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: T.muted, display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dar acceso a</label>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {wizCoProds.map(key => {
+                      const p = PRODUCTS[key]
+                      const on = wizUProds.includes(key)
+                      return (
+                        <button key={key} type="button" onClick={() => setWizUProds(prev => on ? prev.filter(k => k !== key) : [...prev, key])}
+                          style={{ padding: '6px 12px', borderRadius: 7, border: `1px solid ${on ? p.color : T.border}`, background: on ? (p.colorSoft || T.blueSoft) : T.bg, color: on ? p.color : T.muted, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                          {p.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+              <button type="submit" disabled={wizLoading} style={{ padding: '10px', borderRadius: 9, border: 'none', background: T.blue, color: '#fff', fontWeight: 700, fontSize: 13, cursor: wizLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                {wizLoading && <Spinner color="#fff" size={12}/>} {wizLoading ? 'Creando usuario…' : 'Crear usuario y enviar acceso →'}
+              </button>
+            </form>
+          )}
+
+          {wizard.step === 2 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'center', textAlign: 'center', padding: '12px 0' }}>
+              <div style={{ fontSize: 48 }}>🎉</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: T.navy }}>¡Cliente onboarded!</div>
+              <div style={{ fontSize: 13.5, color: T.inkSoft, lineHeight: 1.6 }}>
+                <b>{wizard.companyName}</b> fue creada con acceso a {wizCoProds.map(k => PRODUCTS[k]?.name).join(' y ')}.<br/>
+                {wizUPass ? 'El usuario puede ingresar con la contraseña configurada.' : `Se envió un email de invitación a ${wizUEmail}.`}
+              </div>
+              <div style={{ display: 'flex', gap: 10, width: '100%', marginTop: 4 }}>
+                <button onClick={openWizard} style={{ flex: 1, padding: '10px', borderRadius: 9, border: `1px solid ${T.border}`, background: T.bg, color: T.ink, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                  Agregar otro
+                </button>
+                <button onClick={() => setWizard(null)} style={{ flex: 1, padding: '10px', borderRadius: 9, border: 'none', background: T.blue, color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          )}
         </Modal>
       )}
 
