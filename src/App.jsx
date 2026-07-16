@@ -696,9 +696,7 @@ function AdminPanel() {
   const [revenue, setRevenue]     = useState(null)
   const [revLoading, setRevLoading] = useState(false)
   // costs config per product (monthly, same currency as Stripe prices / 100)
-  const [costs, setCosts]         = useState(() => {
-    try { return JSON.parse(localStorage.getItem('hub_costs') || '{}') } catch { return {} }
-  })
+  const [costs, setCosts]         = useState({})
   const [crossSellModal, setCrossSellModal] = useState(null) // { company, suggestion, loading }
   const [showNotifs, setShowNotifs] = useState(false)
   const [wizard, setWizard]       = useState(null) // null | { step:0|1|2, companyId:null, companyName:'' }
@@ -838,15 +836,18 @@ function AdminPanel() {
     }
   }
 
-  function saveCosts(updated) {
+  async function saveCosts(updated) {
     setCosts(updated)
-    localStorage.setItem('hub_costs', JSON.stringify(updated))
+    try { await adminCall('setSettings', { key: 'costs', value: updated }) } catch(e) { console.warn('saveCosts:', e.message) }
   }
 
   async function loadData() {
     setLoading(true)
     try {
-      const data = await adminCall('getData')
+      const [data, settingsRes] = await Promise.all([
+        adminCall('getData'),
+        adminCall('getSettings', { key: 'costs' }),
+      ])
       setUsers(data.users || [])
       setCompanies(data.companies || [])
       setSubs(data.subs || [])
@@ -854,6 +855,7 @@ function AdminPanel() {
       setClimiaClients(data.climiaClients || [])
       setNomiaPerfiles(data.nomiaPerfiles || [])
       setClimiaProfiles(data.climiaProfiles || [])
+      if (settingsRes?.value) setCosts(settingsRes.value)
     } catch(e) {
       setErr(e.message)
     }
@@ -1132,6 +1134,56 @@ function AdminPanel() {
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))', gap: 12 }}>{children}</div>
                 </div>
               )
+              const TrendChart = ({ data }) => {
+                if (!data || data.length === 0) return null
+                const W = 560, H = 140, pad = { t: 16, r: 12, b: 28, l: 32 }
+                const maxV = Math.max(...data.flatMap(d => [d.companies, d.users]), 1)
+                const xStep = (W - pad.l - pad.r) / (data.length - 1)
+                const yScale = v => pad.t + (H - pad.t - pad.b) * (1 - v / maxV)
+                const pts = (key) => data.map((d, i) => `${pad.l + i * xStep},${yScale(d[key])}`).join(' ')
+                const area = (key) => {
+                  const coords = data.map((d, i) => ({ x: pad.l + i * xStep, y: yScale(d[key]) }))
+                  return `M${coords[0].x},${yScale(0)} ` + coords.map(c => `L${c.x},${c.y}`).join(' ') + ` L${coords[coords.length-1].x},${yScale(0)} Z`
+                }
+                const monthLabel = m => { const [,mo] = m.split('-'); return ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][+mo-1] }
+                return (
+                  <div style={{ background: T.paper, borderRadius: 14, border: `1px solid ${T.border}`, padding: '16px 20px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: T.muted }}>Crecimiento mensual (últimos 6 meses)</div>
+                      <div style={{ display: 'flex', gap: 16, fontSize: 11 }}>
+                        <span style={{ color: T.blue, fontWeight: 700 }}>— Usuarios</span>
+                        <span style={{ color: '#10B981', fontWeight: 700 }}>— Empresas</span>
+                      </div>
+                    </div>
+                    <div style={{ overflowX: 'auto' }}>
+                      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', minWidth: W }}>
+                        {/* Y grid lines */}
+                        {[0, 0.5, 1].map(f => (
+                          <line key={f} x1={pad.l} x2={W - pad.r} y1={pad.t + (H - pad.t - pad.b) * (1 - f)} y2={pad.t + (H - pad.t - pad.b) * (1 - f)}
+                            stroke="#E5E7EB" strokeWidth="1"/>
+                        ))}
+                        {/* Area fills */}
+                        <path d={area('users')} fill={T.blue} opacity="0.08"/>
+                        <path d={area('companies')} fill="#10B981" opacity="0.08"/>
+                        {/* Lines */}
+                        <polyline points={pts('users')} fill="none" stroke={T.blue} strokeWidth="2.5" strokeLinejoin="round"/>
+                        <polyline points={pts('companies')} fill="none" stroke="#10B981" strokeWidth="2.5" strokeLinejoin="round"/>
+                        {/* Dots */}
+                        {data.map((d, i) => (
+                          <g key={i}>
+                            <circle cx={pad.l + i * xStep} cy={yScale(d.users)} r="4" fill="#fff" stroke={T.blue} strokeWidth="2"/>
+                            <circle cx={pad.l + i * xStep} cy={yScale(d.companies)} r="4" fill="#fff" stroke="#10B981" strokeWidth="2"/>
+                          </g>
+                        ))}
+                        {/* X labels */}
+                        {data.map((d, i) => (
+                          <text key={i} x={pad.l + i * xStep} y={H - 4} textAnchor="middle" fontSize="10" fill="#9CA3AF">{monthLabel(d.month)}</text>
+                        ))}
+                      </svg>
+                    </div>
+                  </div>
+                )
+              }
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
                   <Section title="Global">
@@ -1140,6 +1192,7 @@ function AdminPanel() {
                     <MetCard label="Nuevas empresas" value={g.newCompanies} sub="últimos 30 días" color={T.blue}/>
                     <MetCard label="Nuevos usuarios" value={g.newUsers} sub="últimos 30 días" color={T.blue}/>
                   </Section>
+                  <TrendChart data={metrics.trend}/>
 
                   <Section title="Nomia" color={PRODUCTS.nomia.color}>
                     <MetCard label="Clientes" value={nomia.clientes} sub={`${subsProd.nomia || 0} suscripciones activas`}/>

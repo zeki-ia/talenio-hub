@@ -200,12 +200,29 @@ export default async function handler(req, res) {
           subsByProduct[s.product] = (subsByProduct[s.product] || 0) + 1
         }
 
+        // Monthly trend — last 6 months
+        const trendMonths = []
+        for (let i = 5; i >= 0; i--) {
+          const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i)
+          const start = new Date(d.getFullYear(), d.getMonth(), 1).toISOString()
+          const end   = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999).toISOString()
+          trendMonths.push({ label: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`, start, end })
+        }
+        const trendData = await Promise.all(trendMonths.map(async m => {
+          const [compR, userR] = await Promise.all([
+            supabase.from('companies').select('*', { count: 'exact', head: true }).gte('created_at', m.start).lte('created_at', m.end),
+            supabase.from('users').select('*', { count: 'exact', head: true }).gte('created_at', m.start).lte('created_at', m.end),
+          ])
+          return { month: m.label, companies: compR.count ?? 0, users: userR.count ?? 0 }
+        }))
+
         return res.json({
           global: { totalCompanies, activeCompanies, totalUsers, newCompanies, newUsers },
           subs: subsByProduct,
           nomia: { clientes: nomiaClientes, empleados: nomiaEmpleados, escenarios: nomiaEscenarios },
           climia: { clients: climiaClients, profiles: climiaProfiles },
           promotia: { surveyResponses },
+          trend: trendData,
         })
       }
 
@@ -598,6 +615,20 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
         // Marcar en tabla users
         await supabase.from('users').update({ role: suspended ? 'suspended' : 'client' }).eq('id', id)
 
+        return res.json({ ok: true })
+      }
+
+      case 'getSettings': {
+        const { key } = params
+        if (!key) return res.status(400).json({ error: 'key requerido' })
+        const { data } = await supabase.from('hub_settings').select('value').eq('key', key).maybeSingle()
+        return res.json({ value: data?.value ?? null })
+      }
+
+      case 'setSettings': {
+        const { key, value } = params
+        if (!key) return res.status(400).json({ error: 'key requerido' })
+        await supabase.from('hub_settings').upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' })
         return res.json({ ok: true })
       }
 
