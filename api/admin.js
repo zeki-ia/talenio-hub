@@ -57,6 +57,13 @@ export default async function handler(req, res) {
   try {
     switch (action) {
 
+      // ── Datos de apps bypasando RLS (para admins @delenio.net) ──────────
+      case 'getNomiaClientes': {
+        const { data, error } = await supabase.from('nomia_clientes').select('*').order('nombre')
+        if (error) return res.status(400).json({ error: error.message })
+        return res.json({ clientes: data || [] })
+      }
+
       // ── Acceso gratuito / bonificación ──────────────────────────────────
       // ── Sincronizar perfiles de admin en todas las apps ──────────────────
       case 'syncAdminProfiles': {
