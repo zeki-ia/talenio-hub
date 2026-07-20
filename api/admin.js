@@ -346,14 +346,17 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
 
         if (products.includes('climia')) {
           const code = name.trim().slice(0, 3).toUpperCase().replace(/\s/g, '') + '-' + Math.random().toString(36).slice(2, 6).toUpperCase()
-          const surveyToken = crypto.randomUUID()
-          await supabase.from('climia_clients').insert({ name: name.trim(), code, surveyToken })
+          await supabase.from('climia_clients').insert({
+            id: company.id,
+            company_id: company.id,
+            name: name.trim(),
+            code,
+            status: 'active',
+            plan: 'base',
+          })
         }
 
-        if (products.includes('promotia')) {
-          // PromotIA usa client_code en la tabla users — no requiere tabla de clientes separada
-          // El client_code se asigna al crear usuarios de esa empresa
-        }
+
 
         return res.json({ ok: true, company })
       }
@@ -401,10 +404,17 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
             if (!exists) await supabase.from('nomia_clientes').insert({ nombre: coName })
           }
           if (activeAfter.includes('climia')) {
-            const { data: exists } = await supabase.from('climia_clients').select('id').eq('name', coName).maybeSingle()
+            const { data: exists } = await supabase.from('climia_clients').select('id').eq('id', id).maybeSingle()
             if (!exists) {
               const code = coName.slice(0, 3).toUpperCase().replace(/\s/g, '') + '-' + Math.random().toString(36).slice(2, 6).toUpperCase()
-              await supabase.from('climia_clients').insert({ name: coName, code, survey_token: crypto.randomUUID() })
+              await supabase.from('climia_clients').insert({
+                id,
+                company_id: id,
+                name: coName,
+                code,
+                status: 'active',
+                plan: 'base',
+              })
             }
           }
         }
