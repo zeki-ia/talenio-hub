@@ -746,7 +746,8 @@ function AdminPanel() {
   // Suscripciones Stripe
   const [checkoutModal, setCheckoutModal]   = useState(null) // { company, product, plan, url }
   const [subAction, setSubAction]           = useState(null) // 'activar' | 'portal'
-  const PLANS = { climia: ['Start','Growth','Scale'], promotia: ['Start','Growth','Scale'], nomia: ['Base','Growth'] }
+  const PLANS = { climia: ['start','plus_ia'], promotia: ['start','plus_ia'], nomia: ['start','plus_ia'] }
+  const PLAN_LABEL = { start: 'Start', plus_ia: '+IA' }
 
   async function generarCheckout(company, product, plan) {
     setSaving(true)
@@ -1310,7 +1311,7 @@ function AdminPanel() {
                                 <span style={{ fontWeight: 700, fontSize: 13, color: p.color }}>{p.name}</span>
                                 <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 5,
                                   background: isActive ? '#DCFCE7' : '#F3F4F6', color: isActive ? '#166534' : T.muted }}>
-                                  {isActive ? (sub?.plan ? `${sub.plan} ✓` : 'Activo') : sub?.status === 'past_due' ? 'Vencido' : sub?.status === 'canceled' ? 'Cancelado' : 'Sin suscripción'}
+                                  {isActive ? (sub?.plan ? `${PLAN_LABEL[sub.plan]||sub.plan} ✓` : 'Activo') : sub?.status === 'past_due' ? 'Vencido' : sub?.status === 'canceled' ? 'Cancelado' : 'Sin suscripción'}
                                 </span>
                               </div>
 
@@ -1337,7 +1338,7 @@ function AdminPanel() {
                                   {plans.map(plan => (
                                     <button key={plan} onClick={() => generarCheckout(c, key, plan)} disabled={saving}
                                       style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${p.color}40`, background: '#fff', fontSize: 11.5, fontWeight: 600, color: p.color, cursor: saving ? 'not-allowed' : 'pointer' }}>
-                                      {saving ? 'Generando…' : isActive ? `Migrar a plan ${plan}` : `Activar plan ${plan}`}
+                                      {saving ? 'Generando…' : isActive ? `Migrar a plan ${PLAN_LABEL[plan]||plan}` : `Activar plan ${PLAN_LABEL[plan]||plan}`}
                                     </button>
                                   ))}
                                   {isActive && (
@@ -1357,7 +1358,7 @@ function AdminPanel() {
                                   {plans.map(plan => (
                                     <button key={plan} onClick={() => generarCheckout(c, key, plan)} disabled={saving}
                                       style={{ padding: '6px 10px', borderRadius: 7, border: `1px solid ${p.color}40`, background: '#fff', fontSize: 11.5, fontWeight: 600, color: p.color, cursor: saving ? 'not-allowed' : 'pointer' }}>
-                                      {saving ? 'Generando…' : `Activar plan ${plan}`}
+                                      {saving ? 'Generando…' : `Activar plan ${PLAN_LABEL[plan]||plan}`}
                                     </button>
                                   ))}
                                 </div>
