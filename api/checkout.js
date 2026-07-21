@@ -4,27 +4,27 @@
  * POST /api/checkout
  * {
  *   product: 'climia' | 'promotia' | 'nomia',
- *   plan: 'Start' | 'Growth' | 'Scale' | 'Base',
- *   email?: string,         // pre-llenar email en Stripe
- *   companyName?: string,   // nombre de empresa para metadata
- *   successUrl?: string,    // default: hub.talenio.tech?checkout=success
- *   cancelUrl?: string,     // default: hub.talenio.tech?checkout=cancel
- *   stripeCustomerId?: string, // cliente existente
+ *   plan: 'start' | 'plus_ia',
+ *   email?: string,
+ *   companyName?: string,
+ *   successUrl?: string,
+ *   cancelUrl?: string,
+ *   stripeCustomerId?: string,
  * }
  *
  * Variables requeridas en Vercel:
  *   STRIPE_SECRET_KEY
- *   STRIPE_PRICE_CLIMIA_START / GROWTH / SCALE
- *   STRIPE_PRICE_PROMOTIA_START / GROWTH / SCALE
- *   STRIPE_PRICE_NOMIA_BASE / GROWTH
+ *   STRIPE_PRICE_CLIMIA_START / PLUS_IA
+ *   STRIPE_PRICE_PROMOTIA_START / PLUS_IA
+ *   STRIPE_PRICE_NOMIA_START / PLUS_IA
  */
 
 import Stripe from 'stripe'
 
 const PRICE_KEYS = {
-  climia:   { Start: 'STRIPE_PRICE_CLIMIA_START',    Growth: 'STRIPE_PRICE_CLIMIA_GROWTH',   Scale: 'STRIPE_PRICE_CLIMIA_SCALE'   },
-  promotia: { Start: 'STRIPE_PRICE_PROMOTIA_START',  Growth: 'STRIPE_PRICE_PROMOTIA_GROWTH', Scale: 'STRIPE_PRICE_PROMOTIA_SCALE' },
-  nomia:    { Base:  'STRIPE_PRICE_NOMIA_BASE',       Growth: 'STRIPE_PRICE_NOMIA_GROWTH'    },
+  climia:   { start: 'STRIPE_PRICE_CLIMIA_START',   plus_ia: 'STRIPE_PRICE_CLIMIA_PLUS_IA'   },
+  promotia: { start: 'STRIPE_PRICE_PROMOTIA_START', plus_ia: 'STRIPE_PRICE_PROMOTIA_PLUS_IA' },
+  nomia:    { start: 'STRIPE_PRICE_NOMIA_START',    plus_ia: 'STRIPE_PRICE_NOMIA_PLUS_IA'    },
 }
 
 export default async function handler(req, res) {
