@@ -746,6 +746,7 @@ function AdminPanel() {
   // Suscripciones Stripe
   const [checkoutModal, setCheckoutModal]   = useState(null) // { company, product, plan, url }
   const [subAction, setSubAction]           = useState(null) // 'activar' | 'portal'
+  const [freeAccessModal, setFreeAccessModal] = useState(null) // { company, product }
   const PLANS = { climia: ['start','plus_ia'], promotia: ['start','plus_ia'], nomia: ['start','plus_ia'] }
   const PLAN_LABEL = { start: 'Start', plus_ia: '+IA' }
 
@@ -766,11 +767,16 @@ function AdminPanel() {
     setSaving(false)
   }
 
-  async function grantFreeAccess(company, product) {
+  function grantFreeAccess(company, product) {
+    setFreeAccessModal({ company, product })
+  }
+
+  async function confirmFreeAccess(company, product, plan) {
+    setFreeAccessModal(null)
     setSaving(true)
     try {
-      await adminCall('grantFreeAccess', { company_id: company.id, product })
-      flash(true, `Acceso gratuito a ${PRODUCTS[product]?.name} otorgado a "${company.name}".`)
+      await adminCall('grantFreeAccess', { company_id: company.id, product, plan })
+      flash(true, `Acceso ${PLAN_LABEL[plan]} a ${PRODUCTS[product]?.name} otorgado a "${company.name}".`)
       loadData()
     } catch(e) { flash(false, e.message) }
     setSaving(false)
@@ -1632,6 +1638,30 @@ function AdminPanel() {
           </div>
         </Modal>
       )}
+
+      {/* ── Modal bonificar acceso: elegir plan ── */}
+      {freeAccessModal && (() => {
+        const { company, product } = freeAccessModal
+        const p = PRODUCTS[product] || {}
+        return (
+          <Modal title={`Bonificar acceso — ${p.name}`} onClose={() => setFreeAccessModal(null)}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <p style={{ fontSize: 13, color: T.inkSoft, margin: 0 }}>
+                Elegí el plan que querés otorgar gratuitamente a <b>{company.name}</b>:
+              </p>
+              {['start', 'plus_ia'].map(plan => (
+                <button key={plan} onClick={() => confirmFreeAccess(company, product, plan)}
+                  style={{ padding: '14px 16px', borderRadius: 10, border: `1.5px solid ${p.color || T.blue}40`, background: T.bg, cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontWeight: 800, fontSize: 14, color: p.color || T.blue }}>{PLAN_LABEL[plan]}</span>
+                  <span style={{ fontSize: 12, color: T.muted }}>
+                    {plan === 'start' ? 'Funcionalidades core sin análisis IA' : 'Todo Start + análisis, informes y planes de acción con IA'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </Modal>
+        )
+      })()}
 
       {/* ── Modal editar empresa ── */}
       {editCo && (

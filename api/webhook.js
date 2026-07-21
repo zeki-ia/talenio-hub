@@ -50,14 +50,12 @@ async function getRawBody(req) {
 function buildPriceMap() {
   const map = {}
   const entries = [
-    ['STRIPE_PRICE_CLIMIA_START',   'climia',   'Start'],
-    ['STRIPE_PRICE_CLIMIA_GROWTH',  'climia',   'Growth'],
-    ['STRIPE_PRICE_CLIMIA_SCALE',   'climia',   'Scale'],
-    ['STRIPE_PRICE_PROMOTIA_START', 'promotia', 'Start'],
-    ['STRIPE_PRICE_PROMOTIA_GROWTH','promotia', 'Growth'],
-    ['STRIPE_PRICE_PROMOTIA_SCALE', 'promotia', 'Scale'],
-    ['STRIPE_PRICE_NOMIA_BASE',     'nomia',    'Base'],
-    ['STRIPE_PRICE_NOMIA_GROWTH',   'nomia',    'Growth'],
+    ['STRIPE_PRICE_CLIMIA_START',     'climia',   'start'],
+    ['STRIPE_PRICE_CLIMIA_PLUS_IA',   'climia',   'plus_ia'],
+    ['STRIPE_PRICE_PROMOTIA_START',   'promotia', 'start'],
+    ['STRIPE_PRICE_PROMOTIA_PLUS_IA', 'promotia', 'plus_ia'],
+    ['STRIPE_PRICE_NOMIA_START',      'nomia',    'start'],
+    ['STRIPE_PRICE_NOMIA_PLUS_IA',    'nomia',    'plus_ia'],
   ]
   for (const [envKey, product, plan] of entries) {
     const priceId = process.env[envKey]
@@ -125,7 +123,7 @@ export default async function handler(req, res) {
 
         // Producto y plan: metadata tiene prioridad sobre el mapeo por price
         const product = session.metadata?.product || priceInfo?.product
-        const plan    = session.metadata?.plan    || priceInfo?.plan || 'Base'
+        const plan    = session.metadata?.plan    || priceInfo?.plan || 'start'
 
         if (!product) {
           console.warn('[webhook] checkout.session.completed: no se pudo determinar el producto. priceId:', priceId)

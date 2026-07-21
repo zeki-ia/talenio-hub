@@ -109,10 +109,12 @@ export default async function handler(req, res) {
 
       // ── Acceso gratuito / bonificación ──────────────────────────────────
       case 'grantFreeAccess': {
-        const { company_id, product } = params
+        const { company_id, product, plan = 'start' } = params
         if (!company_id || !product) return res.status(400).json({ error: 'company_id y product requeridos' })
+        const validPlans = ['start', 'plus_ia']
+        const safePlan = validPlans.includes(plan) ? plan : 'start'
         const { error } = await supabase.from('subscriptions').upsert(
-          { company_id, product, status: 'active', plan: 'gratis' },
+          { company_id, product, status: 'active', plan: safePlan },
           { onConflict: 'company_id,product' }
         )
         if (error) return res.status(400).json({ error: error.message })
