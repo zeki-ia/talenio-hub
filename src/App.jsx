@@ -2108,7 +2108,7 @@ function AdminPanel() {
                   }}>× Limpiar</button>
                 )}
                 {(() => {
-                  const names = (data?.companies || []).map(c => c.name.trim().toLowerCase())
+                  const names = companies.map(c => c.name.trim().toLowerCase())
                   const hasDups = names.length !== new Set(names).size
                   if (!hasDups) return null
                   return (
