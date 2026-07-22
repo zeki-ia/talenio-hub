@@ -439,6 +439,40 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
         return res.json({ ok: true })
       }
 
+      case 'deleteCompany': {
+        const { id } = params
+        if (!id) return res.status(400).json({ error: 'id requerido' })
+
+        // Obtener nombre para lookup de Nomia (no tiene company_id)
+        const { data: coRow } = await supabase.from('companies').select('name').eq('id', id).maybeSingle()
+        const coName = coRow?.name
+
+        // 1. Desvincular usuarios — limpiar company_id y client_code (PromotIA)
+        await supabase.from('users').update({ company_id: null, client_code: null }).eq('company_id', id)
+
+        // 2. Eliminar suscripciones
+        await supabase.from('subscriptions').delete().eq('company_id', id)
+
+        // 3. Climia — perfiles primero, luego cliente
+        await supabase.from('climia_profiles').delete().eq('client_id', id)
+        await supabase.from('climia_clients').delete().eq('company_id', id)
+
+        // 4. Nomia — buscar cliente por nombre, borrar perfiles y cliente
+        if (coName) {
+          const { data: nomiaClient } = await supabase.from('nomia_clientes').select('id').eq('nombre', coName).maybeSingle()
+          if (nomiaClient) {
+            await supabase.from('nomia_perfiles').delete().eq('cliente_id', nomiaClient.id)
+            await supabase.from('nomia_clientes').delete().eq('id', nomiaClient.id)
+          }
+        }
+
+        // 5. Eliminar la empresa
+        const { error } = await supabase.from('companies').delete().eq('id', id)
+        if (error) return res.status(400).json({ error: error.message })
+
+        return res.json({ ok: true })
+      }
+
       // ── Usuarios ─────────────────────────────────────────────────────────
 
       case 'createUser': {
@@ -581,7 +615,6 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
           const isAdminRole = role === 'admin'
 
           if (products.includes('climia')) {
-            // Si se especificó un client_id explícito, usarlo; si no, buscar/crear por empresa
             let climiaClientId = climia_client_id !== undefined ? (climia_client_id || null) : null
             if (climiaClientId === null && !isAdminRole && companyName) {
               climiaClientId = await findOrCreateAppClient('climia_clients', 'name', companyName)
@@ -592,10 +625,11 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
               role: isAdminRole ? 'admin' : 'cliente', client_id: isAdminRole ? null : climiaClientId, status: 'Activo',
             }, { onConflict: 'id' })
           } else {
+            // Sin acceso a Climia — suspender perfil si existe
             await supabase.from('climia_profiles').update({ status: 'Suspendido' }).eq('id', id)
           }
+
           if (products.includes('nomia')) {
-            // Si se especificó un cliente_id explícito, usarlo; si no, buscar/crear por empresa
             let nomiaClienteId = nomia_cliente_id !== undefined ? (nomia_cliente_id || null) : null
             if (nomiaClienteId === null && !isAdminRole && companyName) {
               nomiaClienteId = await findOrCreateAppClient('nomia_clientes', 'nombre', companyName)
@@ -606,11 +640,16 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
               rol: isAdminRole ? 'admin' : 'cliente',
               cliente_id: isAdminRole ? null : nomiaClienteId,
             }, { onConflict: 'id' })
+          } else {
+            // Sin acceso a Nomia — eliminar perfil si existe
+            await supabase.from('nomia_perfiles').delete().eq('id', id)
           }
-          if (products.includes('promotia')) {
-            const clientCode = companyName ? companyName.slice(0,6).toUpperCase().replace(/\s/g,'') : null
-            await supabase.from('users').update({ client_code: isAdminRole ? null : clientCode }).eq('id', id)
-          }
+
+          // PromotIA — sincronizar client_code siempre (null si no tiene acceso)
+          const clientCode = products.includes('promotia') && !isAdminRole && companyName
+            ? companyName.slice(0, 6).toUpperCase().replace(/\s/g, '')
+            : null
+          await supabase.from('users').update({ client_code: clientCode }).eq('id', id)
         }
 
         return res.json({ ok: true })
@@ -622,10 +661,12 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
 
         // Banear/desbanear en Supabase Auth
         await supabase.auth.admin.updateUserById(id, {
-          ban_duration: suspended ? '876600h' : 'none', // 100 años = suspendido permanentemente
+          ban_duration: suspended ? '876600h' : 'none',
         })
         // Marcar en tabla users
         await supabase.from('users').update({ role: suspended ? 'suspended' : 'client' }).eq('id', id)
+        // Sincronizar estado en Climia
+        await supabase.from('climia_profiles').update({ status: suspended ? 'Suspendido' : 'Activo' }).eq('id', id)
 
         return res.json({ ok: true })
       }

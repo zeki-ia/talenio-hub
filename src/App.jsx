@@ -500,6 +500,327 @@ function ProductCard({ productKey, active, onSelect }) {
   )
 }
 
+// ── CrossInsightPanel ────────────────────────────────────────────────────────
+// Visible when a company has both Climia (clima) + Nomia (payroll) active.
+// Shows a 12-month dual chart: Clima score (teal line) + Headcount (blue bars).
+
+function CrossInsightPanel({ companyId, onGoTo }) {
+  const currentYear = new Date().getFullYear()
+  const [year, setYear]       = useState(currentYear)
+  const [data, setData]       = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [err, setErr]         = useState(null)
+
+  useEffect(() => {
+    setLoading(true)
+    setData(null)
+    ;(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const res = await fetch(`/api/cross-panel?company_id=${companyId}&year=${year}`, {
+          headers: { Authorization: `Bearer ${session?.access_token}` },
+        })
+        const json = await res.json()
+        if (!json.ok) throw new Error(json.error || 'Error al cargar')
+        setData(json)
+      } catch (e) {
+        setErr(e.message)
+      }
+      setLoading(false)
+    })()
+  }, [companyId, year])
+
+  if (loading) return (
+    <div style={{ maxWidth: 1020, margin: '28px auto 0', padding: '0 24px' }}>
+      <div style={{ background: T.paper, borderRadius: 18, padding: '28px 32px', border: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 12, color: T.muted, fontSize: 13.5 }}>
+        <Spinner /> Cargando panel integrado Climia + Nomia {year}…
+      </div>
+    </div>
+  )
+  if (err || !data) return null
+
+  const months = data.months || []
+  const hasClima = months.some(m => m.climaScore !== null)
+  const hasNomia = months.some(m => m.headcount !== null)
+  if (!hasClima && !hasNomia) return null
+
+  // Compute chart geometry
+  const W = 700, H = 200, PL = 48, PR = 52, PT = 16, PB = 36
+  const cw = W - PL - PR
+  const ch = H - PT - PB
+  const n  = months.length
+
+  const climaMin = 0, climaMax = 100
+  const headcounts = months.map(m => m.headcount).filter(v => v !== null)
+  const hcMin = headcounts.length ? Math.max(0, Math.min(...headcounts) - 3) : 0
+  const hcMax = headcounts.length ? Math.max(...headcounts) + 3 : 10
+
+  const xOf = (i) => PL + (i / (n - 1)) * cw
+  const yClima = (v) => PT + (1 - (v - climaMin) / (climaMax - climaMin)) * ch
+  const yHc    = (v) => PT + (1 - (v - hcMin) / (hcMax - hcMin)) * ch
+
+  // Build SVG paths
+  const climaPts = months
+    .map((m, i) => m.climaScore !== null ? `${xOf(i).toFixed(1)},${yClima(m.climaScore).toFixed(1)}` : null)
+    .filter(Boolean)
+
+  const climaPath = climaPts.length >= 2
+    ? 'M ' + climaPts.join(' L ')
+    : null
+
+  const climaFill = climaPts.length >= 2
+    ? `M ${xOf(months.findIndex(m => m.climaScore !== null))},${PT + ch} ${climaPts.join(' L ')} L ${xOf(months.findLastIndex(m => m.climaScore !== null))},${PT + ch} Z`
+    : null
+
+  // Bar width
+  const barW = Math.max(6, (cw / n) * 0.45)
+
+  // Correlate — find biggest headcount change month
+  let changeMonth = null
+  for (let i = 1; i < months.length; i++) {
+    const prev = months[i - 1].headcount, curr = months[i].headcount
+    if (prev !== null && curr !== null && Math.abs(curr - prev) >= 3) {
+      changeMonth = i
+    }
+  }
+
+  return (
+    <div style={{ maxWidth: 1020, margin: '28px auto 0', padding: '0 24px' }}>
+      <div style={{ background: T.paper, borderRadius: 18, border: `1px solid ${T.border}`, overflow: 'hidden', boxShadow: '0 2px 12px rgba(0,0,0,.04)' }}>
+
+        {/* Header */}
+        <div style={{ padding: '22px 28px 18px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>
+              Panel integrado
+            </div>
+            <h2 style={{ fontSize: 17, fontWeight: 800, color: T.navy, margin: 0, letterSpacing: '-0.01em' }}>
+              Clima organizacional + Nómina
+            </h2>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {/* Selector de año */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: T.bg, borderRadius: 10, padding: '4px 6px', border: `1px solid ${T.border}` }}>
+              {[currentYear - 2, currentYear - 1, currentYear].map(y => (
+                <button key={y} onClick={() => setYear(y)} style={{
+                  padding: '4px 10px', borderRadius: 7, border: 'none', cursor: 'pointer',
+                  fontSize: 12, fontWeight: 700, transition: 'all .12s',
+                  background: year === y ? T.navy : 'transparent',
+                  color: year === y ? '#fff' : T.muted,
+                }}>{y}</button>
+              ))}
+            </div>
+            <CrossLink color="#13B0AC" label="Ir a Climia" onClick={() => onGoTo('climia')} />
+            <CrossLink color="#2B3FE0" label="Ir a Nomia"  onClick={() => onGoTo('nomia')} />
+          </div>
+        </div>
+
+        {/* KPIs strip */}
+        <div style={{ display: 'flex', gap: 0, borderBottom: `1px solid ${T.border}` }}>
+          {[
+            {
+              label: 'Clima promedio', icon: '🌡',
+              value: data.climaAvg != null ? `${data.climaAvg}%` : '—',
+              color: data.climaAvg >= 70 ? '#16a34a' : data.climaAvg >= 50 ? '#d97706' : '#dc2626',
+            },
+            {
+              label: 'Variación dotación', icon: '👥',
+              value: data.headcountDelta != null ? `${data.headcountDelta > 0 ? '+' : ''}${data.headcountDelta} personas` : '—',
+              color: data.headcountDelta > 0 ? '#2B3FE0' : data.headcountDelta < 0 ? '#dc2626' : T.ink,
+            },
+          ].map(k => (
+            <div key={k.label} style={{ flex: 1, padding: '16px 24px', borderRight: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 11, color: T.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                {k.icon} {k.label}
+              </div>
+              <div style={{ fontSize: 26, fontWeight: 900, color: k.color, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
+                {k.value}
+              </div>
+            </div>
+          ))}
+          <div style={{ flex: 1, padding: '16px 24px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <Legend color="#13B0AC" label="Clima %" />
+              <Legend color="#2B3FE0" label="Dotación" />
+            </div>
+            {changeMonth !== null && (
+              <div style={{ fontSize: 11.5, color: T.muted, marginTop: 8, lineHeight: 1.5 }}>
+                {months[changeMonth].headcount > months[changeMonth - 1].headcount ? '📈' : '📉'}{' '}
+                <strong>{months[changeMonth].mes}:</strong>{' '}
+                {months[changeMonth].headcount > months[changeMonth - 1].headcount ? '+' : ''}
+                {months[changeMonth].headcount - months[changeMonth - 1].headcount} pers.
+                {months[changeMonth].climaScore !== null && months[changeMonth - 1].climaScore !== null && (
+                  <> — clima {months[changeMonth].climaScore > months[changeMonth - 1].climaScore ? 'subió' : 'bajó'} {Math.abs(months[changeMonth].climaScore - months[changeMonth - 1].climaScore).toFixed(1)}%</>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Alert strip */}
+        {(() => {
+          const panelAlerts = []
+          if (data.climaAvg !== null && data.climaAvg < 60) {
+            panelAlerts.push({
+              level: data.climaAvg < 40 ? 'error' : 'warn',
+              icon: '🌡',
+              title: `Clima en zona de riesgo (${data.climaAvg}%)`,
+              desc: data.climaAvg < 40
+                ? 'El clima está por debajo del 40%. Requiere atención urgente.'
+                : 'El clima promedio está por debajo del umbral recomendado (60%).',
+            })
+          }
+          const latestEnps = [...(data.months || [])].reverse().find(m => m.enps !== null)?.enps
+          if (latestEnps !== null && latestEnps !== undefined && latestEnps < 20) {
+            panelAlerts.push({
+              level: latestEnps < 0 ? 'error' : 'warn',
+              icon: '📊',
+              title: `eNPS bajo (${latestEnps > 0 ? '+' : ''}${latestEnps})`,
+              desc: latestEnps < 0
+                ? 'El eNPS es negativo: hay más detractores que promotores en el equipo.'
+                : 'El eNPS está por debajo del umbral saludable (20).',
+            })
+          }
+          if (!panelAlerts.length) return null
+          const isCritical = panelAlerts.length >= 2 || panelAlerts.some(a => a.level === 'error')
+          return (
+            <div style={{ borderBottom: `1px solid ${T.border}` }}>
+              {isCritical && (
+                <div style={{ background: '#FEF2F2', padding: '6px 28px', fontSize: 11.5, fontWeight: 700, color: '#991B1B', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  ⚠️ ALERTA CRÍTICA — múltiples indicadores fuera de rango
+                </div>
+              )}
+              {panelAlerts.map((a, i) => (
+                <div key={i} style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 14, padding: '14px 28px',
+                  background: a.level === 'error' ? '#FEF2F2' : '#FFFBEB',
+                  borderTop: i > 0 ? `1px solid ${a.level === 'error' ? '#FECACA' : '#FDE68A'}` : undefined,
+                }}>
+                  <span style={{ fontSize: 20, flexShrink: 0, marginTop: 1 }}>{a.icon}</span>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: a.level === 'error' ? '#991B1B' : '#92400E', marginBottom: 2 }}>
+                      {a.title}
+                    </div>
+                    <div style={{ fontSize: 12, color: a.level === 'error' ? '#B91C1C' : '#A16207', lineHeight: 1.45 }}>
+                      {a.desc}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
+
+        {/* Chart */}
+        <div style={{ padding: '20px 28px 12px', overflowX: 'auto' }}>
+          <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', minWidth: 400, maxWidth: '100%' }}>
+            {/* Grid lines */}
+            {[0, 25, 50, 75, 100].map(v => {
+              const y = yClima(v)
+              return (
+                <g key={v}>
+                  <line x1={PL} y1={y} x2={W - PR} y2={y} stroke={T.border} strokeDasharray="3 3" />
+                  <text x={PL - 6} y={y + 4} textAnchor="end" fontSize={10} fill={T.muted}>{v}%</text>
+                </g>
+              )
+            })}
+
+            {/* Headcount bars (right scale) */}
+            {hasNomia && months.map((m, i) => {
+              if (m.headcount === null) return null
+              const bh = Math.max(2, (1 - (m.headcount - hcMin) / (hcMax - hcMin)) * ch)
+              const by = PT + ch - (PT + ch - yHc(m.headcount))
+              return (
+                <rect
+                  key={i}
+                  x={xOf(i) - barW / 2}
+                  y={yHc(m.headcount)}
+                  width={barW}
+                  height={PT + ch - yHc(m.headcount)}
+                  rx={3}
+                  fill="#2B3FE0"
+                  opacity={0.15}
+                />
+              )
+            })}
+
+            {/* Headcount labels (right axis) */}
+            {hasNomia && [hcMin, Math.round((hcMin + hcMax) / 2), hcMax].map(v => (
+              <text key={v} x={W - PR + 8} y={yHc(v) + 4} textAnchor="start" fontSize={10} fill={T.muted}>{Math.round(v)}</text>
+            ))}
+
+            {/* Clima fill */}
+            {climaFill && (
+              <path d={climaFill} fill="#13B0AC" opacity={0.08} />
+            )}
+
+            {/* Clima line */}
+            {climaPath && (
+              <path d={climaPath} fill="none" stroke="#13B0AC" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+            )}
+
+            {/* Clima dots */}
+            {hasClima && months.map((m, i) => m.climaScore !== null ? (
+              <circle key={i} cx={xOf(i)} cy={yClima(m.climaScore)} r={4} fill="#13B0AC" stroke="#fff" strokeWidth={1.5} />
+            ) : null)}
+
+            {/* Headcount line */}
+            {hasNomia && (() => {
+              const hcPts = months.map((m, i) => m.headcount !== null ? `${xOf(i).toFixed(1)},${yHc(m.headcount).toFixed(1)}` : null).filter(Boolean)
+              if (hcPts.length < 2) return null
+              return <path d={'M ' + hcPts.join(' L ')} fill="none" stroke="#2B3FE0" strokeWidth={1.5} strokeDasharray="5 3" opacity={0.6} />
+            })()}
+
+            {/* X labels */}
+            {months.map((m, i) => (
+              <text key={i} x={xOf(i)} y={H - 6} textAnchor="middle" fontSize={10} fill={T.muted}>{m.mes}</text>
+            ))}
+
+            {/* Change annotation */}
+            {changeMonth !== null && (() => {
+              const x = xOf(changeMonth)
+              return <line x1={x} y1={PT} x2={x} y2={PT + ch} stroke="#f59e0b" strokeWidth={1.5} strokeDasharray="4 3" opacity={0.7} />
+            })()}
+          </svg>
+        </div>
+
+        {/* Footer note */}
+        <div style={{ padding: '0 28px 16px', fontSize: 11.5, color: T.muted }}>
+          Clima: promedio de respuestas {year} · {data?.isCurrentYear ? 'Dotación: empleados activos en Nomia' : `Dotación no disponible para años anteriores — se muestran costos reales de ${year}`}.
+          Para ver el detalle completo, ingresá a cada producto.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CrossLink({ color, label, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: '7px 14px', borderRadius: 9,
+        border: `1.5px solid ${color}40`, background: `${color}10`,
+        color, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
+        transition: 'all .15s',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = `${color}20` }}
+      onMouseLeave={e => { e.currentTarget.style.background = `${color}10` }}
+    >
+      {label} →
+    </button>
+  )
+}
+
+function Legend({ color, label }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: T.muted }}>
+      <div style={{ width: 20, height: 3, borderRadius: 2, background: color }} />
+      {label}
+    </div>
+  )
+}
+
 // ── Hub ──────────────────────────────────────────────────────────────────────
 
 function HubPage({ user, subscriptions, companyId, onLogout }) {
@@ -510,6 +831,40 @@ function HubPage({ user, subscriptions, companyId, onLogout }) {
   const activeProducts = isAdmin ? allProductKeys : [...new Set([...subsActive, ...freemium])]
   const paidActive = isAdmin ? allProductKeys.filter(k => !PRODUCTS[k]?.freemium) : subsActive.filter(k => !PRODUCTS[k]?.freemium)
   const [subError, setSubError] = useState(null)
+
+  // ── Perfil de usuario ──────────────────────────────────────────────────────
+  const displayName = user?.user_metadata?.full_name || user?.name || ''
+  const initials    = (displayName || user?.email || '?').slice(0, 2).toUpperCase()
+  const [showProfile, setShowProfile]   = useState(false)
+  const [profName, setProfName]         = useState(displayName)
+  const [profPwd, setProfPwd]           = useState('')
+  const [profPwd2, setProfPwd2]         = useState('')
+  const [profSaving, setProfSaving]     = useState(false)
+  const [profMsg, setProfMsg]           = useState(null) // { ok, text }
+
+  async function saveProfile(e) {
+    e.preventDefault()
+    if (profPwd && profPwd !== profPwd2) {
+      setProfMsg({ ok: false, text: 'Las contraseñas no coinciden.' }); return
+    }
+    if (profPwd && profPwd.length < 6) {
+      setProfMsg({ ok: false, text: 'La contraseña debe tener al menos 6 caracteres.' }); return
+    }
+    setProfSaving(true); setProfMsg(null)
+    try {
+      const updates = { data: { full_name: profName.trim() } }
+      if (profPwd) updates.password = profPwd
+      const { error } = await supabase.auth.updateUser(updates)
+      if (error) throw error
+      // Sync name in users table
+      await supabase.from('users').update({ name: profName.trim() }).eq('id', user.id)
+      setProfPwd(''); setProfPwd2('')
+      setProfMsg({ ok: true, text: 'Perfil actualizado correctamente.' })
+    } catch(err) {
+      setProfMsg({ ok: false, text: err.message || 'Error al guardar.' })
+    }
+    setProfSaving(false)
+  }
 
   async function handleSelect(key) {
     setSubError(null)
@@ -559,8 +914,14 @@ function HubPage({ user, subscriptions, companyId, onLogout }) {
               <div style={{ fontSize: 10.5, color: T.muted }}>by Delenio People</div>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: 12.5, color: T.muted, display: 'none' }}>{user?.email}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button onClick={() => setShowProfile(true)} title={displayName || user?.email} style={{
+              width: 34, height: 34, borderRadius: '50%', background: T.navy, color: '#fff',
+              border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, letterSpacing: '0.02em',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}>
+              {initials}
+            </button>
             <button onClick={onLogout} style={{ background: 'none', border: `1px solid ${T.border}`, borderRadius: 8, padding: '6px 13px', fontSize: 12.5, color: T.inkSoft, fontWeight: 600 }}>
               Salir
             </button>
@@ -628,7 +989,7 @@ function HubPage({ user, subscriptions, companyId, onLogout }) {
       )}
 
       {/* Grid */}
-      <div style={{ maxWidth: 1020, margin: '0 auto', padding: '32px 24px 48px' }}>
+      <div style={{ maxWidth: 1020, margin: '0 auto', padding: '32px 24px 0' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 16 }}>
           {Object.keys(PRODUCTS).map(key => (
             <ProductCard key={key} productKey={key} active={activeProducts.includes(key)} onSelect={handleSelect}/>
@@ -636,8 +997,84 @@ function HubPage({ user, subscriptions, companyId, onLogout }) {
         </div>
       </div>
 
+      {/* Panel cross-app — visible cuando tiene ambos Climia + Nomia */}
+      {!isAdmin && paidActive.includes('climia') && paidActive.includes('nomia') && companyId && (
+        <CrossInsightPanel companyId={companyId} onGoTo={handleSelect} />
+      )}
+
+      {/* Padding final */}
+      <div style={{ height: 48 }} />
+
       {/* Panel admin */}
       {isAdmin && <AdminPanel />}
+
+      {/* ── Modal de perfil ─────────────────────────────────────────────────── */}
+      {showProfile && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 200, display: 'grid', placeItems: 'center', padding: 20 }}
+          onClick={e => { if (e.target === e.currentTarget) { setShowProfile(false); setProfMsg(null) } }}>
+          <div style={{ background: T.paper, borderRadius: 16, width: '100%', maxWidth: 420, boxShadow: '0 8px 40px rgba(0,0,0,.18)', overflow: 'hidden' }}>
+            {/* Header */}
+            <div style={{ background: T.navy, padding: '24px 28px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(255,255,255,.2)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 800 }}>
+                {initials}
+              </div>
+              <div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: '#fff' }}>{profName || user?.email}</div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,.65)', marginTop: 2 }}>
+                  {user?.role === 'admin' ? 'Administrador Delenio' : 'Usuario'}
+                </div>
+              </div>
+              <button onClick={() => { setShowProfile(false); setProfMsg(null) }} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'rgba(255,255,255,.7)', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={saveProfile} style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Email (read-only) */}
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: 'uppercase', letterSpacing: '.05em' }}>Email</label>
+                <input value={user?.email || ''} readOnly style={{ marginTop: 4, width: '100%', boxSizing: 'border-box', padding: '9px 12px', border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 13.5, color: T.muted, background: T.bg }} />
+              </div>
+
+              {/* Nombre */}
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: 'uppercase', letterSpacing: '.05em' }}>Nombre</label>
+                <input value={profName} onChange={e => setProfName(e.target.value)} placeholder="Tu nombre completo"
+                  style={{ marginTop: 4, width: '100%', boxSizing: 'border-box', padding: '9px 12px', border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 13.5, color: T.ink, background: T.paper, outline: 'none' }} />
+              </div>
+
+              {/* Contraseña */}
+              <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 10 }}>Cambiar contraseña (opcional)</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <input type="password" value={profPwd} onChange={e => setProfPwd(e.target.value)} placeholder="Nueva contraseña"
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 13.5, color: T.ink, background: T.paper, outline: 'none' }} />
+                  <input type="password" value={profPwd2} onChange={e => setProfPwd2(e.target.value)} placeholder="Repetir contraseña"
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 13.5, color: T.ink, background: T.paper, outline: 'none' }} />
+                </div>
+              </div>
+
+              {/* Feedback */}
+              {profMsg && (
+                <div style={{ padding: '9px 13px', borderRadius: 8, fontSize: 13, fontWeight: 600, background: profMsg.ok ? '#f0fdf4' : '#fef2f2', color: profMsg.ok ? '#166534' : '#991b1b', border: `1px solid ${profMsg.ok ? '#bbf7d0' : '#fecaca'}` }}>
+                  {profMsg.text}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button type="button" onClick={() => { setShowProfile(false); setProfMsg(null) }}
+                  style={{ background: 'none', border: `1px solid ${T.border}`, borderRadius: 8, padding: '8px 16px', fontSize: 13, color: T.inkSoft, cursor: 'pointer', fontWeight: 600 }}>
+                  Cancelar
+                </button>
+                <button type="submit" disabled={profSaving}
+                  style={{ background: T.navy, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 20px', fontSize: 13, fontWeight: 700, cursor: profSaving ? 'not-allowed' : 'pointer', opacity: profSaving ? .7 : 1 }}>
+                  {profSaving ? 'Guardando…' : 'Guardar cambios'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -698,6 +1135,9 @@ function AdminPanel() {
   // costs config per product (monthly, same currency as Stripe prices / 100)
   const [costs, setCosts]         = useState({})
   const [crossSellModal, setCrossSellModal] = useState(null) // { company, suggestion, loading }
+  const [crossAlerts, setCrossAlerts]       = useState([])
+  const [filterProd, setFilterProd]         = useState(null)  // null | product key
+  const [filterStatus, setFilterStatus]     = useState('all') // 'all' | 'active' | 'suspended'
   const [showNotifs, setShowNotifs] = useState(false)
   const [wizard, setWizard]       = useState(null) // null | { step:0|1|2, companyId:null, companyName:'' }
   const [wizCoName, setWizCoName] = useState('')
@@ -807,8 +1247,19 @@ function AdminPanel() {
     setSaving(false)
   }
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => { loadData(); loadCrossAlerts(); loadRevenue() }, [])
   useEffect(() => { if (tab === 'dashboard') { loadMetrics(); loadRevenue() } }, [tab])
+
+  async function loadCrossAlerts() {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/cross-alerts', {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      })
+      const json = await res.json()
+      if (json.ok) setCrossAlerts(json.alerts || [])
+    } catch(e) { console.warn('cross-alerts:', e.message) }
+  }
 
   async function loadMetrics() {
     setMetricsLoading(true)
@@ -873,6 +1324,29 @@ function AdminPanel() {
     return subs.filter(s => s.company_id === companyId && s.status === 'active').map(s => s.product)
   }
 
+  // MRR for a single company: sum price of each active sub using priceLookup
+  // priceLookup keys may be capitalized ('climia:Start') while DB plan is lowercase ('start')
+  function mrrForCompany(companyId) {
+    if (!revenue?.priceLookup) return null
+    const pl = revenue.priceLookup
+    return subs
+      .filter(s => s.company_id === companyId && s.status === 'active')
+      .reduce((total, s) => {
+        const key = `${s.product}:${s.plan}`
+        // case-insensitive fallback: try exact then capitalized plan
+        const entry = pl[key]
+          || pl[`${s.product}:${s.plan?.charAt(0).toUpperCase()}${s.plan?.slice(1)}`]
+          || null
+        return total + (entry?.amount || 0)
+      }, 0)
+  }
+
+  const fmtMRR = (cents) => cents == null
+    ? '—'
+    : cents === 0
+      ? '$0'
+      : `$${Math.round(cents / 100).toLocaleString('es-AR')}`
+
   function flash(ok, text) {
     if (ok) setMsg(text); else setErr(text)
     setTimeout(() => { setMsg(''); setErr('') }, 4000)
@@ -894,8 +1368,17 @@ function AdminPanel() {
     companies.filter(c => c.is_active !== false && !activeCoIds.has(c.id)).forEach(c =>
       alerts.push({ level: 'info', text: `"${c.name}" sin suscripción activa`, action: () => { setShowNotifs(false); setTab('subscriptions') } })
     )
+    // Cross-product health alerts (Climia + Nomia)
+    crossAlerts.forEach(ca => {
+      const detail = ca.alerts.map(a => a.message).join(' · ')
+      alerts.push({
+        level: ca.isCritical ? 'error' : 'warn',
+        text: `${ca.companyName}: ${detail}`,
+        action: () => { setShowNotifs(false); setTab('companies') },
+      })
+    })
     return alerts
-  }, [users, companies, subs])
+  }, [users, companies, subs, crossAlerts])
 
   // ── Wizard onboarding ────────────────────────────────────────────────────────
   function openWizard() {
@@ -971,6 +1454,17 @@ function AdminPanel() {
       await adminCall('updateCompany', { id: editCo.id, name: editCoName, products: editCoProds, is_active: editCoActive })
       flash(true, `Empresa actualizada.`)
       setEditCo(null)
+      loadData()
+    } catch(e) { flash(false, e.message) }
+    setSaving(false)
+  }
+
+  async function deleteCompany(c) {
+    if (!confirm(`¿Eliminar permanentemente "${c.name}"?\n\nEsto borrará la empresa, sus suscripciones y sus registros en Climia. Los usuarios quedarán desvinculados pero no se eliminarán.\n\nEsta acción no se puede deshacer.`)) return
+    setSaving(true)
+    try {
+      await adminCall('deleteCompany', { id: c.id })
+      flash(true, `Empresa "${c.name}" eliminada.`)
       loadData()
     } catch(e) { flash(false, e.message) }
     setSaving(false)
@@ -1290,7 +1784,17 @@ function AdminPanel() {
                     <div key={c.id} style={{ background: T.paper, borderRadius: 14, padding: 20, border: `1px solid ${T.border}` }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                         <div>
-                          <div style={{ fontWeight: 800, fontSize: 14, color: T.navy }}>{c.name}</div>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                            <div style={{ fontWeight: 800, fontSize: 14, color: T.navy }}>{c.name}</div>
+                            {(() => {
+                              const mrr = mrrForCompany(c.id)
+                              return mrr != null ? (
+                                <div style={{ fontSize: 12, fontWeight: 700, color: mrr > 0 ? '#166534' : T.muted }}>
+                                  MRR {fmtMRR(mrr)}<span style={{ fontWeight: 400, color: T.muted }}>/mes</span>
+                                </div>
+                              ) : null
+                            })()}
+                          </div>
                           {c.stripe_customer_id && (
                             <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
                               Stripe: {c.stripe_customer_id}
@@ -1479,9 +1983,43 @@ function AdminPanel() {
           {/* ── Lista ── */}
           <div style={{ background: T.paper, borderRadius: 14, padding: 24, border: `1px solid ${T.border}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 800, color: T.navy, margin: 0 }}>
-                {tab === 'companies' ? `Empresas (${companies.length})` : `Usuarios (${users.length})`}
-              </h3>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 14 }}>
+                <h3 style={{ fontSize: 14, fontWeight: 800, color: T.navy, margin: 0 }}>
+                  {tab === 'companies' ? (() => {
+                    const hasFilter = searchQ || filterProd || filterStatus !== 'all'
+                    if (!hasFilter) return `Empresas (${companies.length})`
+                    const n = companies.filter(c => {
+                      const q = searchQ.toLowerCase()
+                      if (q && !c.name?.toLowerCase().includes(q)) return false
+                      if (filterStatus === 'active'    && c.is_active === false) return false
+                      if (filterStatus === 'suspended' && c.is_active !== false) return false
+                      if (filterProd) {
+                        const prods = subs.filter(s => s.company_id === c.id && s.status === 'active').map(s => s.product)
+                        if (!prods.includes(filterProd)) return false
+                      }
+                      return true
+                    }).length
+                    return `Empresas (${n} de ${companies.length})`
+                  })() : `Usuarios (${users.length})`}
+                </h3>
+                {tab === 'companies' && revenue?.priceLookup && (() => {
+                  const filtered = companies.filter(c => {
+                    const q = searchQ.toLowerCase()
+                    if (q && !c.name?.toLowerCase().includes(q)) return false
+                    if (filterStatus === 'active'    && c.is_active === false) return false
+                    if (filterStatus === 'suspended' && c.is_active !== false) return false
+                    if (filterProd) {
+                      const prods = subs.filter(s => s.company_id === c.id && s.status === 'active').map(s => s.product)
+                      if (!prods.includes(filterProd)) return false
+                    }
+                    return true
+                  })
+                  const totalMRR = filtered.reduce((s, c) => s + (mrrForCompany(c.id) || 0), 0)
+                  return <span style={{ fontSize: 12, fontWeight: 700, color: '#166534' }}>
+                    MRR {fmtMRR(totalMRR)}
+                  </span>
+                })()}
+              </div>
               <button onClick={loadData} style={{ background: 'none', border: `1px solid ${T.border}`, borderRadius: 7, padding: '4px 10px', fontSize: 11, color: T.muted, cursor: 'pointer' }}>
                 ↺ Actualizar
               </button>
@@ -1490,13 +2028,66 @@ function AdminPanel() {
               value={searchQ}
               onChange={e => setSearchQ(e.target.value)}
               placeholder={tab === 'companies' ? 'Buscar empresa…' : 'Buscar por nombre o email…'}
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${T.border}`, fontSize: 13, color: T.ink, background: T.bg, outline: 'none', marginBottom: 12, boxSizing: 'border-box' }}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${T.border}`, fontSize: 13, color: T.ink, background: T.bg, outline: 'none', marginBottom: 10, boxSizing: 'border-box' }}
             />
+
+            {/* Filtros de producto + estado — solo en tab empresas */}
+            {tab === 'companies' && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+                {/* Filtro estado */}
+                {[['all','Todas'],['active','Activas'],['suspended','Suspendidas']].map(([v, l]) => (
+                  <button key={v} onClick={() => setFilterStatus(v)} style={{
+                    padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    border: `1px solid ${filterStatus === v ? T.blue : T.border}`,
+                    background: filterStatus === v ? T.blueSoft : 'transparent',
+                    color: filterStatus === v ? T.blue : T.muted,
+                    transition: 'all .12s',
+                  }}>{l}</button>
+                ))}
+                <div style={{ width: 1, height: 16, background: T.border, margin: '0 2px' }}/>
+                {/* Filtro por producto */}
+                {Object.entries(PRODUCTS).filter(([, p]) => !p.freemium).map(([key, p]) => {
+                  const active = filterProd === key
+                  return (
+                    <button key={key} onClick={() => setFilterProd(active ? null : key)} style={{
+                      padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                      border: `1px solid ${active ? p.color : T.border}`,
+                      background: active ? p.colorSoft : 'transparent',
+                      color: active ? p.colorMid : T.muted,
+                      transition: 'all .12s',
+                    }}>{p.name}</button>
+                  )
+                })}
+                {(filterProd || filterStatus !== 'all' || searchQ) && (
+                  <button onClick={() => { setFilterProd(null); setFilterStatus('all'); setSearchQ('') }} style={{
+                    padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    border: `1px solid ${T.border}`, background: 'transparent', color: T.muted,
+                  }}>× Limpiar</button>
+                )}
+              </div>
+            )}
 
             {loading ? <Spinner/> : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 480, overflowY: 'auto' }}>
 
-                {tab === 'companies' ? companies.filter(c => !searchQ || c.name?.toLowerCase().includes(searchQ.toLowerCase())).map(c => {
+                {tab === 'companies' ? (() => {
+                  const filtered = companies.filter(c => {
+                    const q = searchQ.toLowerCase()
+                    if (q && !c.name?.toLowerCase().includes(q)) return false
+                    if (filterStatus === 'active'    && c.is_active === false) return false
+                    if (filterStatus === 'suspended' && c.is_active !== false) return false
+                    if (filterProd) {
+                      const prods = subs.filter(s => s.company_id === c.id && s.status === 'active').map(s => s.product)
+                      if (!prods.includes(filterProd)) return false
+                    }
+                    return true
+                  })
+                  if (!filtered.length) return (
+                    <div style={{ padding: '28px 0', textAlign: 'center', color: T.muted, fontSize: 13 }}>
+                      Sin empresas que coincidan con los filtros
+                    </div>
+                  )
+                  return filtered.map(c => {
                   const prods   = companyProducts(c.id)
                   const active  = c.is_active !== false
                   const cUsers  = users.filter(u => u.company_id === c.id)
@@ -1522,12 +2113,25 @@ function AdminPanel() {
                           )) : <span style={{ fontSize: 10, color: T.muted }}>Sin productos</span>}
                         </div>
                       </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, flexShrink: 0, minWidth: 38 }}>
-                        <span style={{ fontSize: 13, fontWeight: 800, color: scoreColor, lineHeight: 1 }}>{score}</span>
-                        <div style={{ width: 32, height: 4, borderRadius: 2, background: T.border, overflow: 'hidden' }}>
-                          <div style={{ width: `${score}%`, height: '100%', background: scoreColor, borderRadius: 2, transition: 'width .3s' }}/>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                        {/* MRR */}
+                        {(() => {
+                          const mrr = mrrForCompany(c.id)
+                          return mrr != null ? (
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.04em', lineHeight: 1, marginBottom: 1 }}>MRR</div>
+                              <div style={{ fontSize: 13, fontWeight: 800, color: mrr > 0 ? '#166534' : T.muted, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{fmtMRR(mrr)}</div>
+                            </div>
+                          ) : null
+                        })()}
+                        {/* Engagement score */}
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, minWidth: 38 }}>
+                          <span style={{ fontSize: 12, fontWeight: 800, color: scoreColor, lineHeight: 1 }}>{score}</span>
+                          <div style={{ width: 32, height: 3, borderRadius: 2, background: T.border, overflow: 'hidden' }}>
+                            <div style={{ width: `${score}%`, height: '100%', background: scoreColor, borderRadius: 2, transition: 'width .3s' }}/>
+                          </div>
+                          <span style={{ fontSize: 9, color: T.muted, fontWeight: 600 }}>ENG</span>
                         </div>
-                        <span style={{ fontSize: 9, color: T.muted, fontWeight: 600 }}>ENG</span>
                       </div>
                       <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
                         {active && (
@@ -1535,10 +2139,12 @@ function AdminPanel() {
                         )}
                         <IconBtn label="Editar" color={T.blue} onClick={() => openEditCo(c)}/>
                         <IconBtn label={active ? 'Suspender' : 'Reactivar'} color={active ? '#DC2626' : '#166534'} onClick={() => toggleSuspendCo(c)}/>
+                        <IconBtn label="Eliminar" color="#DC2626" onClick={() => deleteCompany(c)}/>
                       </div>
                     </div>
                   )
-                }) : users.filter(u => !searchQ || (u.name + ' ' + u.email).toLowerCase().includes(searchQ.toLowerCase())).map(u => {
+                })
+                })() : users.filter(u => !searchQ || (u.name + ' ' + u.email).toLowerCase().includes(searchQ.toLowerCase())).map(u => {
                   const suspended = u.role === 'suspended'
                   return (
                     <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, background: suspended ? '#FEF2F2' : T.bg, border: `1px solid ${suspended ? '#FECACA' : T.border}` }}>
