@@ -1470,6 +1470,35 @@ function AdminPanel() {
     setSaving(false)
   }
 
+  async function cleanDuplicateCompanies() {
+    // Agrupar por nombre (case-insensitive), quedarse con el más viejo de cada grupo
+    const groups = {}
+    for (const c of data.companies) {
+      const key = c.name.trim().toLowerCase()
+      if (!groups[key]) groups[key] = []
+      groups[key].push(c)
+    }
+    const toDelete = []
+    for (const group of Object.values(groups)) {
+      if (group.length < 2) continue
+      // Ordenar por created_at ascendente; el primero es el original
+      const sorted = [...group].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+      toDelete.push(...sorted.slice(1))
+    }
+    if (toDelete.length === 0) { flash(true, 'No hay empresas duplicadas.'); return }
+    if (!confirm(`Se van a eliminar ${toDelete.length} empresa${toDelete.length > 1 ? 's' : ''} duplicada${toDelete.length > 1 ? 's' : ''}:\n\n${toDelete.map(c => `• ${c.name}`).join('\n')}\n\nSe conserva la más antigua de cada nombre. Los usuarios de los duplicados quedarán desvinculados.\n\n¿Continuar?`)) return
+    setSaving(true)
+    let errors = []
+    for (const c of toDelete) {
+      try { await adminCall('deleteCompany', { id: c.id }) }
+      catch(e) { errors.push(`${c.name}: ${e.message}`) }
+    }
+    await loadData()
+    if (errors.length) flash(false, 'Algunos duplicados no se pudieron eliminar: ' + errors.join('; '))
+    else flash(true, `${toDelete.length} empresa${toDelete.length > 1 ? 's' : ''} duplicada${toDelete.length > 1 ? 's' : ''} eliminada${toDelete.length > 1 ? 's' : ''}.`)
+    setSaving(false)
+  }
+
   async function toggleSuspendCo(c) {
     const newActive = c.is_active === false ? true : false
     setSaving(true)
@@ -2064,6 +2093,17 @@ function AdminPanel() {
                     border: `1px solid ${T.border}`, background: 'transparent', color: T.muted,
                   }}>× Limpiar</button>
                 )}
+                {(() => {
+                  const names = data.companies.map(c => c.name.trim().toLowerCase())
+                  const hasDups = names.length !== new Set(names).size
+                  if (!hasDups) return null
+                  return (
+                    <button onClick={cleanDuplicateCompanies} disabled={saving} style={{
+                      marginLeft: 'auto', padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                      border: '1px solid #DC2626', background: '#FEF2F2', color: '#DC2626',
+                    }}>⚠ Eliminar duplicados</button>
+                  )
+                })()}
               </div>
             )}
 
