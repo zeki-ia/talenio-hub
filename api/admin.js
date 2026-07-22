@@ -66,7 +66,7 @@ export default async function handler(req, res) {
     const { data: found } = await supabase.from(table).select('id').ilike(nameField, compName.trim()).maybeSingle()
     if (found) return found.id
     const extra = table === 'climia_clients'
-      ? { code: compName.slice(0,3).toUpperCase()+'-'+Math.random().toString(36).slice(2,5).toUpperCase(), survey_token: crypto.randomUUID() }
+      ? { code: compName.slice(0,3).toUpperCase()+'-'+Math.random().toString(36).slice(2,5).toUpperCase(), survey_token: crypto.randomUUID(), status: 'active' }
       : {}
     const { data: created } = await supabase.from(table).insert({ [nameField]: compName, ...extra }).select('id').single()
     if (created?.id && table === 'nomia_clientes') {
