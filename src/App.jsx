@@ -1,5 +1,19 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, Component } from 'react'
 import { createClient } from '@supabase/supabase-js'
+
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null } }
+  static getDerivedStateFromError(e) { return { error: e } }
+  render() {
+    if (this.state.error) return (
+      <div style={{ padding: 40, fontFamily: 'monospace', color: '#DC2626', background: '#FEF2F2', minHeight: '100vh' }}>
+        <b>Error al renderizar:</b><br/>
+        <pre style={{ whiteSpace: 'pre-wrap', marginTop: 12 }}>{this.state.error?.message}{'\n\n'}{this.state.error?.stack}</pre>
+      </div>
+    )
+    return this.props.children
+  }
+}
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -2590,5 +2604,5 @@ export default function App() {
 
   if (loading)    return <><GlobalStyle/><LoadingScreen message="Cargando tus productos…"/></>
   if (!session)   return <><GlobalStyle/><LoginPage/></>
-  return <><GlobalStyle/><HubPage user={{ ...session.user, role: userRow?.role }} subscriptions={subscriptions} companyId={userRow?.company_id} onLogout={handleLogout}/></>
+  return <ErrorBoundary><GlobalStyle/><HubPage user={{ ...session.user, role: userRow?.role }} subscriptions={subscriptions} companyId={userRow?.company_id} onLogout={handleLogout}/></ErrorBoundary>
 }
