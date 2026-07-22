@@ -2382,6 +2382,9 @@ function AdminPanel() {
               <button type="submit" disabled={wizLoading} style={{ padding: '10px', borderRadius: 9, border: 'none', background: T.blue, color: '#fff', fontWeight: 700, fontSize: 13, cursor: wizLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                 {wizLoading && <Spinner color="#fff" size={12}/>} {wizLoading ? 'Creando usuario…' : 'Crear usuario y enviar acceso →'}
               </button>
+              <button type="button" onClick={() => setWizard(w => ({ ...w, step: 2 }))} style={{ padding: '9px', borderRadius: 9, border: `1px solid ${T.border}`, background: T.bg, color: T.muted, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}>
+                Omitir — el usuario ya existe
+              </button>
             </form>
           )}
 
