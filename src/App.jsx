@@ -1176,6 +1176,7 @@ function AdminPanel() {
   const [uPassword, setUPassword]       = useState('')
   const [uNomiaCliente, setUNomiaCliente] = useState('')
   const [uClimiaClient, setUClimiaClient] = useState('')
+  const [uConsultorCompanies, setUConsultorCompanies] = useState([])
 
   // Crear empresa
   const [cName, setCName]         = useState('')
@@ -1196,6 +1197,7 @@ function AdminPanel() {
   const [editUserProds, setEditUserProds]     = useState([])
   const [editNomiaCliente, setEditNomiaCliente] = useState('')
   const [editClimiaClient, setEditClimiaClient] = useState('')
+  const [editConsultorCompanies, setEditConsultorCompanies] = useState([]) // uuid[]
 
   // Suscripciones Stripe
   const [checkoutModal, setCheckoutModal]   = useState(null) // { company, product, plan, url }
@@ -1432,11 +1434,13 @@ function AdminPanel() {
     try {
       await adminCall('createUser', {
         email: uEmail, name: uName, role: uRole,
-        company_id: uCompany || null, products: uProducts, password: uPassword || undefined,
+        company_id: isConsultor(uRole) ? null : (uCompany || null),
+        consultor_companies: isConsultor(uRole) ? uConsultorCompanies : [],
+        products: uProducts, password: uPassword || undefined,
       })
       flash(true, uPassword ? `Usuario ${uEmail} creado con contraseña.` : `Usuario ${uEmail} creado. Recibirá un email de invitación.`)
       setUEmail(''); setUName(''); setURole('client'); setUCompany(''); setUProducts([]); setUPassword('')
-      setUNomiaCliente(''); setUClimiaClient('')
+      setUNomiaCliente(''); setUClimiaClient(''); setUConsultorCompanies([])
       loadData()
     } catch(e) { flash(false, e.message) }
     setSaving(false)
@@ -1522,6 +1526,8 @@ function AdminPanel() {
     setSaving(false)
   }
 
+  const isConsultor = (role) => role === 'consultor'
+
   function openEditUser(u) {
     setEditUser(u)
     setEditUserName(u.name || '')
@@ -1529,7 +1535,7 @@ function AdminPanel() {
     setEditUserRole(u.role)
     setEditUserCompany(u.company_id || '')
     setEditUserProds(u.products || [])
-    // Pre-cargar asignaciones actuales de apps
+    setEditConsultorCompanies(u.consultor_companies || [])
     const nomPerfil = nomiaPerfiles.find(p => p.id === u.id)
     const climPerfil = climiaProfiles.find(p => p.id === u.id)
     setEditNomiaCliente(nomPerfil?.cliente_id != null ? String(nomPerfil.cliente_id) : '')
@@ -1544,7 +1550,8 @@ function AdminPanel() {
         name: editUserName,
         email: editUserEmail !== editUser.email ? editUserEmail : undefined,
         role: editUserRole,
-        company_id: editUserCompany || null,
+        company_id: isConsultor(editUserRole) ? null : (editUserCompany || null),
+        consultor_companies: isConsultor(editUserRole) ? editConsultorCompanies : [],
         products: editUserProds,
       })
       flash(true, 'Usuario actualizado.')
@@ -1962,23 +1969,43 @@ function AdminPanel() {
                 </div>
                 <div>
                   <label style={lbl}>Rol</label>
-                  <select style={inp} value={uRole} onChange={e => setURole(e.target.value)}>
+                  <select style={inp} value={uRole} onChange={e => { setURole(e.target.value); setUCompany(''); setUConsultorCompanies([]) }}>
                     <option value="client">Cliente</option>
+                    <option value="consultor">Consultor</option>
                     <option value="admin">Admin</option>
                   </select>
                 </div>
-                <div>
-                  <label style={lbl}>Empresa</label>
-                  <select style={inp} value={uCompany} onChange={e => { setUCompany(e.target.value); setUProducts([]) }}>
-                    <option value="">Sin empresa</option>
-                    {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
-                {uCompany && (() => {
+                {isConsultor(uRole) && (
+                  <div>
+                    <label style={lbl}>Empresas que administra</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto', border: `1px solid ${T.border}`, borderRadius: 9, padding: '8px 10px' }}>
+                      {companies.filter(c => c.is_active !== false).map(c => {
+                        const on = uConsultorCompanies.includes(c.id)
+                        return (
+                          <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '4px 6px', borderRadius: 7, background: on ? T.blueSoft : 'transparent' }}>
+                            <input type="checkbox" checked={on} onChange={e => setUConsultorCompanies(prev => e.target.checked ? [...prev, c.id] : prev.filter(id => id !== c.id))}/>
+                            {c.name}
+                          </label>
+                        )
+                      })}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 5 }}>El consultor tendrá acceso a los datos de cada empresa en todas las apps.</div>
+                  </div>
+                )}
+                {!isConsultor(uRole) && uRole !== 'admin' && (
+                  <div>
+                    <label style={lbl}>Empresa</label>
+                    <select style={inp} value={uCompany} onChange={e => { setUCompany(e.target.value); setUProducts([]) }}>
+                      <option value="">Sin empresa</option>
+                      {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                )}
+                {!isConsultor(uRole) && uRole !== 'admin' && uCompany && (() => {
                   const available = companyProducts(uCompany).filter(p => !PRODUCTS[p]?.freemium)
                   return available.length > 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <label style={lbl}>Acceso a productos y cliente por app</label>
+                      <label style={lbl}>Acceso a productos</label>
                       {available.map(key => {
                         const p = PRODUCTS[key]
                         const checked = uProducts.includes(key)
@@ -1988,7 +2015,7 @@ function AdminPanel() {
                               <input type="checkbox" checked={checked} onChange={e => setUProducts(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
                               <span style={{ color: p.color, fontWeight: 700 }}>{p.name}</span>
                             </label>
-                            {checked && uRole !== 'admin' && (key === 'nomia' || key === 'climia') && (
+                            {checked && (key === 'nomia' || key === 'climia') && (
                               <div style={{ padding: '0 12px 10px', fontSize: 11, color: T.muted }}>
                                 Cliente asignado automáticamente por empresa
                               </div>
@@ -2458,23 +2485,49 @@ function AdminPanel() {
             </div>
             <div>
               <label style={lbl}>Rol</label>
-              <select style={inp} value={editUserRole} onChange={e => setEditUserRole(e.target.value)}>
+              <select style={inp} value={editUserRole} onChange={e => { setEditUserRole(e.target.value); setEditUserCompany(''); setEditConsultorCompanies([]) }}>
                 <option value="client">Cliente</option>
+                <option value="consultor">Consultor</option>
                 <option value="admin">Admin</option>
               </select>
             </div>
-            <div>
-              <label style={lbl}>Empresa</label>
-              <select style={inp} value={editUserCompany} onChange={e => { setEditUserCompany(e.target.value); setEditUserProds([]) }}>
-                <option value="">Sin empresa</option>
-                {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-            {editUserCompany && (() => {
+
+            {/* Consultor: multi-empresa */}
+            {isConsultor(editUserRole) && (
+              <div>
+                <label style={lbl}>Empresas que administra</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto', border: `1px solid ${T.border}`, borderRadius: 9, padding: '8px 10px' }}>
+                  {companies.filter(c => c.is_active !== false).map(c => {
+                    const on = editConsultorCompanies.includes(c.id)
+                    return (
+                      <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', padding: '4px 6px', borderRadius: 7, background: on ? T.blueSoft : 'transparent' }}>
+                        <input type="checkbox" checked={on} onChange={e => setEditConsultorCompanies(prev => e.target.checked ? [...prev, c.id] : prev.filter(id => id !== c.id))}/>
+                        {c.name}
+                      </label>
+                    )
+                  })}
+                </div>
+                <div style={{ fontSize: 11, color: T.muted, marginTop: 5 }}>El consultor tendrá acceso a los datos de cada empresa seleccionada en todas las apps.</div>
+              </div>
+            )}
+
+            {/* Cliente: una sola empresa */}
+            {!isConsultor(editUserRole) && editUserRole !== 'admin' && (
+              <div>
+                <label style={lbl}>Empresa</label>
+                <select style={inp} value={editUserCompany} onChange={e => { setEditUserCompany(e.target.value); setEditUserProds([]) }}>
+                  <option value="">Sin empresa</option>
+                  {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            {/* Productos — solo para cliente con empresa */}
+            {!isConsultor(editUserRole) && editUserRole !== 'admin' && editUserCompany && (() => {
               const available = companyProducts(editUserCompany).filter(p => !PRODUCTS[p]?.freemium)
               return available.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <label style={lbl}>Acceso a productos y cliente por app</label>
+                  <label style={lbl}>Acceso a productos</label>
                   {available.map(key => {
                     const p = PRODUCTS[key]
                     const checked = editUserProds.includes(key)
@@ -2484,7 +2537,7 @@ function AdminPanel() {
                           <input type="checkbox" checked={checked} onChange={e => setEditUserProds(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
                           <span style={{ color: p.color, fontWeight: 700 }}>{p.name}</span>
                         </label>
-                        {checked && editUserRole !== 'admin' && (key === 'nomia' || key === 'climia') && (
+                        {checked && (key === 'nomia' || key === 'climia') && (
                           <div style={{ padding: '0 12px 10px', fontSize: 11, color: T.muted }}>
                             Cliente asignado automáticamente por empresa
                           </div>

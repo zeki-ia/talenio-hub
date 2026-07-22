@@ -480,7 +480,7 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
       // ── Usuarios ─────────────────────────────────────────────────────────
 
       case 'createUser': {
-        const { email, name, role = 'client', company_id, products = [], password, nomia_cliente_id, climia_client_id } = params
+        const { email, name, role = 'client', company_id, products = [], password, nomia_cliente_id, climia_client_id, consultor_companies = [] } = params
         if (!email?.trim()) return res.status(400).json({ error: 'Email requerido' })
 
         const emailLower = email.trim().toLowerCase()
@@ -518,41 +518,61 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
           }
         }
 
+        const isConsultor = role === 'consultor'
+        const isAdmin = role === 'admin'
+
         // Tabla core
         await supabase.from('users').upsert(
-          { id: userId, email: emailLower, name: name || null, role, company_id: company_id || null, products },
+          { id: userId, email: emailLower, name: name || null, role, company_id: company_id || null, products,
+            ...(consultor_companies.length ? { consultor_companies } : {}) },
           { onConflict: 'id' }
         )
 
-        // Obtener nombre de empresa para lookup de apps
-        let companyName = null
-        if (company_id) {
-          const { data: co } = await supabase.from('companies').select('name').eq('id', company_id).maybeSingle()
-          companyName = co?.name
-        }
-
-        // Perfiles en apps según productos seleccionados
-        const isAdmin = role === 'admin'
-        if (products.includes('climia')) {
-          let clientId = climia_client_id != null ? climia_client_id : null
-          if (clientId === null && !isAdmin && companyName) clientId = await findOrCreateAppClient('climia_clients', 'name', companyName)
-          await supabase.from('climia_profiles').upsert({
-            id: userId, email: emailLower, name: name || emailLower,
-            role: isAdmin ? 'admin' : 'cliente', client_id: isAdmin ? null : clientId, status: 'Activo',
-          }, { onConflict: 'id' })
-        }
-        if (products.includes('nomia')) {
-          let clienteId = nomia_cliente_id != null ? nomia_cliente_id : null
-          if (clienteId === null && !isAdmin && companyName) clienteId = await findOrCreateAppClient('nomia_clientes', 'nombre', companyName)
-          await supabase.from('nomia_perfiles').upsert({
-            id: userId, email: emailLower, nombre: name || emailLower,
-            rol: isAdmin ? 'admin' : 'cliente', cliente_id: isAdmin ? null : clienteId,
-          }, { onConflict: 'id' })
-        }
-        if (products.includes('promotia')) {
-          // PromotIA usa client_code en users — actualizar la fila ya existente
-          const clientCode = companyName ? companyName.slice(0,6).toUpperCase().replace(/\s/g,'') : null
-          await supabase.from('users').update({ client_code: isAdmin ? null : clientCode }).eq('id', userId)
+        if (isConsultor && consultor_companies.length) {
+          // Crear perfiles en cada app para cada empresa asignada
+          for (const coId of consultor_companies) {
+            const { data: co } = await supabase.from('companies').select('name').eq('id', coId).maybeSingle()
+            const coName = co?.name
+            if (!coName) continue
+            const climiaId = await findOrCreateAppClient('climia_clients', 'name', coName)
+            await supabase.from('climia_profiles').upsert({
+              id: userId, email: emailLower, name: name || emailLower,
+              role: 'consultor', client_id: climiaId, status: 'Activo',
+            }, { onConflict: 'id' })
+            const nomiaId = await findOrCreateAppClient('nomia_clientes', 'nombre', coName)
+            await supabase.from('nomia_perfiles').upsert({
+              id: userId, email: emailLower, nombre: name || emailLower,
+              rol: 'consultor', cliente_id: nomiaId,
+            }, { onConflict: 'id' })
+          }
+        } else {
+          // Obtener nombre de empresa para lookup de apps
+          let companyName = null
+          if (company_id) {
+            const { data: co } = await supabase.from('companies').select('name').eq('id', company_id).maybeSingle()
+            companyName = co?.name
+          }
+          // Perfiles en apps según productos seleccionados
+          if (products.includes('climia')) {
+            let clientId = climia_client_id != null ? climia_client_id : null
+            if (clientId === null && !isAdmin && companyName) clientId = await findOrCreateAppClient('climia_clients', 'name', companyName)
+            await supabase.from('climia_profiles').upsert({
+              id: userId, email: emailLower, name: name || emailLower,
+              role: isAdmin ? 'admin' : 'cliente', client_id: isAdmin ? null : clientId, status: 'Activo',
+            }, { onConflict: 'id' })
+          }
+          if (products.includes('nomia')) {
+            let clienteId = nomia_cliente_id != null ? nomia_cliente_id : null
+            if (clienteId === null && !isAdmin && companyName) clienteId = await findOrCreateAppClient('nomia_clientes', 'nombre', companyName)
+            await supabase.from('nomia_perfiles').upsert({
+              id: userId, email: emailLower, nombre: name || emailLower,
+              rol: isAdmin ? 'admin' : 'cliente', cliente_id: isAdmin ? null : clienteId,
+            }, { onConflict: 'id' })
+          }
+          if (products.includes('promotia')) {
+            const clientCode = companyName ? companyName.slice(0,6).toUpperCase().replace(/\s/g,'') : null
+            await supabase.from('users').update({ client_code: isAdmin ? null : clientCode }).eq('id', userId)
+          }
         }
 
         return res.json({ ok: true, userId })
@@ -579,7 +599,7 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
       }
 
       case 'updateUser': {
-        const { id, role, company_id, products, name: newName, email: newEmail, nomia_cliente_id, climia_client_id } = params
+        const { id, role, company_id, products, name: newName, email: newEmail, nomia_cliente_id, climia_client_id, consultor_companies } = params
         if (!id) return res.status(400).json({ error: 'id requerido' })
 
         const updates = {}
@@ -587,6 +607,7 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
         if (company_id !== undefined) updates.company_id = company_id || null
         if (products !== undefined)   updates.products   = products
         if (newName !== undefined)    updates.name       = newName || null
+        if (consultor_companies !== undefined) updates.consultor_companies = consultor_companies || []
 
         if (Object.keys(updates).length) {
           await supabase.from('users').update(updates).eq('id', id)
@@ -603,22 +624,45 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
           }
         }
 
-        // Sincronizar perfiles en apps si cambió products
-        if (products !== undefined) {
-          const { data: uRow } = await supabase.from('users').select('email, company_id').eq('id', id).maybeSingle()
+        // Sincronizar perfiles en apps si cambió role, products o consultor_companies
+        if (products !== undefined || consultor_companies !== undefined || role !== undefined) {
+          const { data: uRow } = await supabase.from('users').select('email, company_id, role, products, consultor_companies').eq('id', id).maybeSingle()
           const emailLower = uRow?.email || ''
+          const effectiveRole = role !== undefined ? role : uRow?.role
+          const isConsultorRole = effectiveRole === 'consultor'
+          const isAdminRole = effectiveRole === 'admin'
+          const effectiveProducts = products !== undefined ? products : (uRow?.products || [])
+          const effectiveConsultorCompanies = consultor_companies !== undefined ? consultor_companies : (uRow?.consultor_companies || [])
+
+          if (isConsultorRole && effectiveConsultorCompanies.length) {
+            // Consultor: crear perfil por cada empresa asignada
+            for (const coId of effectiveConsultorCompanies) {
+              const { data: co } = await supabase.from('companies').select('name').eq('id', coId).maybeSingle()
+              if (!co?.name) continue
+              const climiaId = await findOrCreateAppClient('climia_clients', 'name', co.name)
+              await supabase.from('climia_profiles').upsert({
+                id, email: emailLower, name: newName || emailLower,
+                role: 'consultor', client_id: climiaId, status: 'Activo',
+              }, { onConflict: 'id' })
+              const nomiaId = await findOrCreateAppClient('nomia_clientes', 'nombre', co.name)
+              await supabase.from('nomia_perfiles').upsert({
+                id, email: emailLower, nombre: newName || emailLower,
+                rol: 'consultor', cliente_id: nomiaId,
+              }, { onConflict: 'id' })
+            }
+            return res.json({ ok: true })
+          }
+
           const effectiveCompanyId = company_id !== undefined ? (company_id || null) : (uRow?.company_id || null)
 
-          // Buscar nombre empresa y cliente Nomia
+          // Buscar nombre empresa
           let companyName = null
           if (effectiveCompanyId) {
             const { data: co } = await supabase.from('companies').select('name').eq('id', effectiveCompanyId).maybeSingle()
             companyName = co?.name
           }
 
-          const isAdminRole = role === 'admin'
-
-          if (products.includes('climia')) {
+          if (effectiveProducts.includes('climia')) {
             let climiaClientId = climia_client_id !== undefined ? (climia_client_id || null) : null
             if (climiaClientId === null && !isAdminRole && companyName) {
               climiaClientId = await findOrCreateAppClient('climia_clients', 'name', companyName)
@@ -633,7 +677,7 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
             await supabase.from('climia_profiles').update({ status: 'Suspendido' }).eq('id', id)
           }
 
-          if (products.includes('nomia')) {
+          if (effectiveProducts.includes('nomia')) {
             let nomiaClienteId = nomia_cliente_id !== undefined ? (nomia_cliente_id || null) : null
             if (nomiaClienteId === null && !isAdminRole && companyName) {
               nomiaClienteId = await findOrCreateAppClient('nomia_clientes', 'nombre', companyName)
@@ -650,7 +694,7 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
           }
 
           // PromotIA — sincronizar client_code siempre (null si no tiene acceso)
-          const clientCode = products.includes('promotia') && !isAdminRole && companyName
+          const clientCode = effectiveProducts.includes('promotia') && !isAdminRole && companyName
             ? companyName.slice(0, 6).toUpperCase().replace(/\s/g, '')
             : null
           await supabase.from('users').update({ client_code: clientCode }).eq('id', id)
