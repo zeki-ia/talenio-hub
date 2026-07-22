@@ -448,7 +448,8 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
         const coName = coRow?.name
 
         // 1. Desvincular usuarios — limpiar company_id y client_code (PromotIA)
-        await supabase.from('users').update({ company_id: null, client_code: null }).eq('company_id', id)
+        const { error: unlinkErr } = await supabase.from('users').update({ company_id: null, client_code: null }).eq('company_id', id)
+        if (unlinkErr) return res.status(400).json({ error: 'No se pudo desvincular usuarios: ' + unlinkErr.message })
 
         // 2. Eliminar suscripciones
         await supabase.from('subscriptions').delete().eq('company_id', id)
