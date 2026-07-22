@@ -1433,8 +1433,6 @@ function AdminPanel() {
       await adminCall('createUser', {
         email: uEmail, name: uName, role: uRole,
         company_id: uCompany || null, products: uProducts, password: uPassword || undefined,
-        nomia_cliente_id: uProducts.includes('nomia') && uNomiaCliente ? Number(uNomiaCliente) : undefined,
-        climia_client_id: uProducts.includes('climia') && uClimiaClient ? Number(uClimiaClient) : undefined,
       })
       flash(true, uPassword ? `Usuario ${uEmail} creado con contraseña.` : `Usuario ${uEmail} creado. Recibirá un email de invitación.`)
       setUEmail(''); setUName(''); setURole('client'); setUCompany(''); setUProducts([]); setUPassword('')
@@ -1548,8 +1546,6 @@ function AdminPanel() {
         role: editUserRole,
         company_id: editUserCompany || null,
         products: editUserProds,
-        nomia_cliente_id: editUserProds.includes('nomia') ? (editNomiaCliente ? Number(editNomiaCliente) : null) : undefined,
-        climia_client_id: editUserProds.includes('climia') ? (editClimiaClient ? Number(editClimiaClient) : null) : undefined,
       })
       flash(true, 'Usuario actualizado.')
       setEditUser(null)
@@ -1992,22 +1988,9 @@ function AdminPanel() {
                               <input type="checkbox" checked={checked} onChange={e => setUProducts(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
                               <span style={{ color: p.color, fontWeight: 700 }}>{p.name}</span>
                             </label>
-                            {checked && uRole !== 'admin' && key === 'nomia' && (
-                              <div style={{ padding: '0 12px 10px' }}>
-                                <label style={{ ...lbl, marginBottom: 4 }}>Cliente en Nomia <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 10 }}>(opcional — se auto-asigna por empresa)</span></label>
-                                <select style={inp} value={uNomiaCliente} onChange={e => setUNomiaCliente(e.target.value)}>
-                                  <option value="">— Auto por empresa —</option>
-                                  {nomiaClientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
-                              </div>
-                            )}
-                            {checked && uRole !== 'admin' && key === 'climia' && (
-                              <div style={{ padding: '0 12px 10px' }}>
-                                <label style={{ ...lbl, marginBottom: 4 }}>Cliente en Climia <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 10 }}>(opcional — se auto-asigna por empresa)</span></label>
-                                <select style={inp} value={uClimiaClient} onChange={e => setUClimiaClient(e.target.value)}>
-                                  <option value="">— Auto por empresa —</option>
-                                  {climiaClients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                </select>
+                            {checked && uRole !== 'admin' && (key === 'nomia' || key === 'climia') && (
+                              <div style={{ padding: '0 12px 10px', fontSize: 11, color: T.muted }}>
+                                Cliente asignado automáticamente por empresa
                               </div>
                             )}
                           </div>
@@ -2501,22 +2484,9 @@ function AdminPanel() {
                           <input type="checkbox" checked={checked} onChange={e => setEditUserProds(prev => e.target.checked ? [...prev, key] : prev.filter(k => k !== key))}/>
                           <span style={{ color: p.color, fontWeight: 700 }}>{p.name}</span>
                         </label>
-                        {checked && editUserRole !== 'admin' && key === 'nomia' && (
-                          <div style={{ padding: '0 12px 10px' }}>
-                            <label style={{ ...lbl, marginBottom: 4 }}>Cliente en Nomia</label>
-                            <select style={inp} value={editNomiaCliente} onChange={e => setEditNomiaCliente(e.target.value)}>
-                              <option value="">— Sin asignar —</option>
-                              {nomiaClientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                            </select>
-                          </div>
-                        )}
-                        {checked && editUserRole !== 'admin' && key === 'climia' && (
-                          <div style={{ padding: '0 12px 10px' }}>
-                            <label style={{ ...lbl, marginBottom: 4 }}>Cliente en Climia</label>
-                            <select style={inp} value={editClimiaClient} onChange={e => setEditClimiaClient(e.target.value)}>
-                              <option value="">— Sin asignar —</option>
-                              {climiaClients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                            </select>
+                        {checked && editUserRole !== 'admin' && (key === 'nomia' || key === 'climia') && (
+                          <div style={{ padding: '0 12px 10px', fontSize: 11, color: T.muted }}>
+                            Cliente asignado automáticamente por empresa
                           </div>
                         )}
                       </div>
