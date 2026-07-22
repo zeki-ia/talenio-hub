@@ -328,6 +328,9 @@ Tu tarea: generá UNA sugerencia de cross-sell o upsell concreta y personalizada
         const { name, products = [] } = params
         if (!name?.trim()) return res.status(400).json({ error: 'Nombre requerido' })
 
+        const { data: existing } = await supabase.from('companies').select('id').ilike('name', name.trim()).maybeSingle()
+        if (existing) return res.status(400).json({ error: `Ya existe una empresa con el nombre "${name.trim()}"` })
+
         const { data: company, error } = await supabase
           .from('companies')
           .insert({ name: name.trim(), is_active: true })
